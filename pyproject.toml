@@ -1,0 +1,107 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "document-parser"
+dynamic = ["version"]
+description = "Local, structure-preserving document conversion for RAG workflows."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [
+  { name = "Aytan Mardaliyeva" },
+]
+keywords = [
+  "document-processing",
+  "docx",
+  "markdown",
+  "ocr",
+  "pdf",
+  "rag",
+  "xlsx",
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2,<2",
+  "cyclonedx-bom>=7,<8",
+  "mypy>=1.13,<2",
+  "pip-licenses>=5,<6",
+  "pytest>=8,<10",
+  "pytest-cov>=6,<8",
+  "ruff>=0.9,<1",
+  "twine>=6,<7",
+]
+
+[project.urls]
+Changelog = "https://github.com/Mardaliyeva/document-parser/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/Mardaliyeva/document-parser/tree/main/docs"
+Issues = "https://github.com/Mardaliyeva/document-parser/issues"
+Repository = "https://github.com/Mardaliyeva/document-parser"
+
+[tool.hatch.version]
+path = "src/document_parser/__about__.py"
+
+[tool.hatch.build.targets.wheel]
+core-metadata-version = "2.4"
+packages = ["src/document_parser"]
+
+[tool.hatch.build.targets.sdist]
+core-metadata-version = "2.4"
+include = [
+  "/src",
+  "/tests",
+  "/docs",
+  "/CHANGELOG.md",
+  "/CODE_OF_CONDUCT.md",
+  "/CONTRIBUTING.md",
+  "/LICENSE",
+  "/NOTICE",
+  "/README.md",
+  "/SECURITY.md",
+  "/pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers --cov=document_parser --cov-report=term-missing --cov-fail-under=100"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["document_parser"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py311"
+
+[tool.ruff.format]
+indent-style = "space"
+line-ending = "lf"
+quote-style = "double"
+
+[tool.ruff.lint]
+select = ["B", "E4", "E7", "E9", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.mypy]
+files = ["src", "tests"]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
