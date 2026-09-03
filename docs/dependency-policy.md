@@ -55,7 +55,15 @@ rejected, unknown, or unreviewed runtime license must fail the license job.
 
 ## Current runtime dependencies
 
-Pydantic 2 is used for immutable IR validation, discriminated unions, and JSON
-schema/round-trip support. Pydantic and its runtime components use permissive
-licenses accepted by this policy. No document parser, OCR engine, or model asset
-is a runtime dependency in the core phase.
+The native-conversion release uses:
+
+- Pydantic 2 for immutable IR and result validation;
+- python-docx and lxml for DOCX plus bounded OOXML parsing;
+- pypdf and pdfplumber for PDF validation, objects, text layout, and tables;
+- openpyxl and defusedxml for safe XLSX workbook processing;
+- Pillow for decoded image payload support required by the format adapters.
+
+Their runtime dependency trees are checked in CI against the allowlist. PyMuPDF
+is intentionally excluded because its AGPL/commercial licensing does not match
+this project's permissive runtime policy. No OCR engine or model asset is a
+runtime dependency in release `0.3.0a1`.

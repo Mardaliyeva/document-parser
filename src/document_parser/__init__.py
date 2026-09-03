@@ -14,6 +14,7 @@ from document_parser.exceptions import (
     UnsafeDocumentError,
     UnsupportedFormatError,
 )
+from document_parser.markdown import FormulaMode, MarkdownOptions, TableMode, to_markdown
 from document_parser.models import (
     SCHEMA_VERSION,
     AssetRef,
@@ -42,20 +43,31 @@ from document_parser.models import (
     TableRow,
     TextSpan,
 )
-from document_parser.parser import DocumentParser, inspect_source, parse
-from document_parser.sources import AdapterInput, ParseOptions, SourceInput
+from document_parser.parser import DocumentParser, convert, inspect_source, parse
+from document_parser.results import AdapterOutput, AssetPayload, ConversionResult
+from document_parser.sources import (
+    AdapterInput,
+    DocxOptions,
+    ParseOptions,
+    PdfOptions,
+    SourceInput,
+    XlsxOptions,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
     "AdapterExecutionError",
     "AdapterInput",
     "AdapterNotAvailableError",
+    "AdapterOutput",
     "AdapterRegistry",
+    "AssetPayload",
     "AssetRef",
     "BoundingBox",
     "ContainerBlock",
     "ContainerRole",
     "ContentBlock",
+    "ConversionResult",
     "CoordinateUnit",
     "Diagnostic",
     "DiagnosticSeverity",
@@ -66,16 +78,20 @@ __all__ = [
     "DocumentParser",
     "DocumentParserError",
     "DocumentStatus",
+    "DocxOptions",
     "ErrorCode",
     "FigureBlock",
+    "FormulaMode",
     "HeadingBlock",
     "InvalidDocumentError",
     "ListBlock",
     "ListItem",
     "ListKind",
+    "MarkdownOptions",
     "PageBreakBlock",
     "ParagraphBlock",
     "ParseOptions",
+    "PdfOptions",
     "SourceInfo",
     "SourceInput",
     "SourceLocation",
@@ -84,11 +100,15 @@ __all__ = [
     "SourceTooLargeError",
     "TableBlock",
     "TableCell",
+    "TableMode",
     "TableRow",
     "TextSpan",
     "UnsafeDocumentError",
     "UnsupportedFormatError",
+    "XlsxOptions",
     "__version__",
+    "convert",
     "inspect_source",
     "parse",
+    "to_markdown",
 ]

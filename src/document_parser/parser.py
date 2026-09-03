@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from document_parser.adapters import AdapterRegistry, DocumentAdapter
+from document_parser.adapters import AdapterRegistry, DocumentAdapter, builtin_adapters
 from document_parser.exceptions import (
     AdapterExecutionError,
     AdapterNotAvailableError,
     DocumentParserError,
 )
+from document_parser.markdown import MarkdownOptions, to_markdown
 from document_parser.models import Document, SourceInfo
+from document_parser.results import AdapterOutput, ConversionResult
 from document_parser.sources import ParseOptions, SourceInput, prepare_source
 
 
@@ -23,10 +25,10 @@ class DocumentParser:
         self,
         *,
         options: ParseOptions | None = None,
-        adapters: Iterable[DocumentAdapter] = (),
+        adapters: Iterable[DocumentAdapter] | None = None,
     ) -> None:
         self.options = options or ParseOptions()
-        self._registry = AdapterRegistry(adapters)
+        self._registry = AdapterRegistry(builtin_adapters() if adapters is None else adapters)
 
     @property
     def supported_formats(self) -> tuple[str, ...]:
@@ -40,9 +42,7 @@ class DocumentParser:
         with prepare_source(source, filename=filename, options=self.options) as prepared:
             return prepared.info
 
-    def parse(self, source: SourceInput, *, filename: str | None = None) -> Document:
-        """Parse an input with the adapter selected from its detected content."""
-
+    def _parse_output(self, source: SourceInput, *, filename: str | None) -> AdapterOutput:
         with prepare_source(source, filename=filename, options=self.options) as prepared:
             adapter = self._registry.get(prepared.info.format)
             if adapter is None:
@@ -51,7 +51,7 @@ class DocumentParser:
                     source_name=prepared.info.name,
                 )
             try:
-                document = adapter.parse(prepared, self.options)
+                output = adapter.parse(prepared, self.options)
             except DocumentParserError:
                 raise
             except Exception as exc:
@@ -59,17 +59,38 @@ class DocumentParser:
                     f"{prepared.info.format.value} adapter failed",
                     source_name=prepared.info.name,
                 ) from exc
-            if not isinstance(document, Document):
+            if not isinstance(output, AdapterOutput):
                 raise AdapterExecutionError(
-                    "adapter did not return a Document",
+                    "adapter did not return an AdapterOutput",
                     source_name=prepared.info.name,
                 )
-            if document.source != prepared.info:
+            if output.document.source != prepared.info:
                 raise AdapterExecutionError(
                     "adapter returned a Document for a different source",
                     source_name=prepared.info.name,
                 )
-            return document
+            return output
+
+    def parse(self, source: SourceInput, *, filename: str | None = None) -> Document:
+        """Parse an input and return its format-independent Document IR."""
+
+        return self._parse_output(source, filename=filename).document
+
+    def convert(
+        self,
+        source: SourceInput,
+        *,
+        filename: str | None = None,
+        markdown_options: MarkdownOptions | None = None,
+    ) -> ConversionResult:
+        """Parse one input and return IR, Markdown, and extracted assets."""
+
+        output = self._parse_output(source, filename=filename)
+        return ConversionResult(
+            document=output.document,
+            markdown=to_markdown(output.document, options=markdown_options),
+            assets=output.assets,
+        )
 
 
 def inspect_source(
@@ -92,3 +113,19 @@ def parse(
     """Parse one source using the default parser and its built-in adapters."""
 
     return DocumentParser(options=options).parse(source, filename=filename)
+
+
+def convert(
+    source: SourceInput,
+    *,
+    filename: str | None = None,
+    options: ParseOptions | None = None,
+    markdown_options: MarkdownOptions | None = None,
+) -> ConversionResult:
+    """Parse one source with built-ins and return a complete conversion bundle."""
+
+    return DocumentParser(options=options).convert(
+        source,
+        filename=filename,
+        markdown_options=markdown_options,
+    )

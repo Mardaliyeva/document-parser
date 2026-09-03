@@ -10,6 +10,7 @@ from document_parser import (
     AdapterExecutionError,
     AdapterInput,
     AdapterNotAvailableError,
+    AdapterOutput,
     AdapterRegistry,
     Document,
     DocumentAdapter,
@@ -20,7 +21,6 @@ from document_parser import (
     ParseOptions,
     SourceReadError,
     TextSpan,
-    parse,
 )
 
 PDF_BYTES = b"%PDF-1.7\n%%EOF\n"
@@ -48,7 +48,7 @@ class SuccessfulAdapter:
         self.rolled_to_disk: list[bool] = []
         self.options: ParseOptions | None = None
 
-    def parse(self, source: AdapterInput, options: ParseOptions) -> Document:
+    def parse(self, source: AdapterInput, options: ParseOptions) -> AdapterOutput:
         self.captured = source
         self.options = options
         with source.open_binary() as stream:
@@ -56,7 +56,7 @@ class SuccessfulAdapter:
             self.payloads.append(stream.read())
         with source.open_binary() as stream:
             self.payloads.append(stream.read())
-        return document_for(source)
+        return AdapterOutput(document=document_for(source))
 
 
 class DocxAdapter(SuccessfulAdapter):
@@ -66,49 +66,51 @@ class DocxAdapter(SuccessfulAdapter):
 class RaisingAdapter:
     format = DocumentFormat.PDF
 
-    def parse(self, source: AdapterInput, options: ParseOptions) -> Document:
+    def parse(self, source: AdapterInput, options: ParseOptions) -> AdapterOutput:
         raise InvalidDocumentError("adapter rejected input", source_name=source.info.name)
 
 
 class ExplodingAdapter:
     format = DocumentFormat.PDF
 
-    def parse(self, source: AdapterInput, options: ParseOptions) -> Document:
+    def parse(self, source: AdapterInput, options: ParseOptions) -> AdapterOutput:
         raise ValueError("private implementation detail")
 
 
 class WrongTypeAdapter:
     format = DocumentFormat.PDF
 
-    def parse(self, source: AdapterInput, options: ParseOptions) -> Document:
+    def parse(self, source: AdapterInput, options: ParseOptions) -> AdapterOutput:
         return "not a document"  # type: ignore[return-value]
 
 
 class WrongSourceAdapter:
     format = DocumentFormat.PDF
 
-    def parse(self, source: AdapterInput, options: ParseOptions) -> Document:
+    def parse(self, source: AdapterInput, options: ParseOptions) -> AdapterOutput:
         wrong_source = source.info.model_copy(update={"name": "other.pdf"})
-        return Document(
-            document_id=f"sha256:{source.info.sha256}",
-            source=wrong_source,
+        return AdapterOutput(
+            document=Document(
+                document_id=f"sha256:{source.info.sha256}",
+                source=wrong_source,
+            )
         )
 
 
 class ClosingAdapter:
     format = DocumentFormat.PDF
 
-    def parse(self, source: AdapterInput, options: ParseOptions) -> Document:
+    def parse(self, source: AdapterInput, options: ParseOptions) -> AdapterOutput:
         with source.open_binary() as stream:
             stream.close()
-        return document_for(source)
+        return AdapterOutput(document=document_for(source))
 
 
 class InvalidFormatAdapter:
     format = "pdf"
 
-    def parse(self, source: AdapterInput, options: ParseOptions) -> Document:
-        return document_for(source)
+    def parse(self, source: AdapterInput, options: ParseOptions) -> AdapterOutput:
+        return AdapterOutput(document=document_for(source))
 
 
 def test_registry_is_immutable_sorted_and_protocol_compatible() -> None:
@@ -164,7 +166,7 @@ def test_input_larger_than_spool_threshold_rolls_to_disk_and_is_cleaned() -> Non
 
 
 def test_inspect_succeeds_without_an_adapter_but_parse_does_not() -> None:
-    parser = DocumentParser()
+    parser = DocumentParser(adapters=())
     assert parser.inspect(PDF_BYTES, filename="sample.pdf").format is DocumentFormat.PDF
     assert parser.supported_formats == ()
 
@@ -172,8 +174,7 @@ def test_inspect_succeeds_without_an_adapter_but_parse_does_not() -> None:
         parser.parse(PDF_BYTES, filename="sample.pdf")
     assert error.value.source_name == "sample.pdf"
 
-    with pytest.raises(AdapterNotAvailableError):
-        parse(PDF_BYTES, filename="sample.pdf")
+    assert DocumentParser().supported_formats == ("docx", "pdf", "xlsx")
 
 
 def test_expected_adapter_error_is_not_wrapped() -> None:

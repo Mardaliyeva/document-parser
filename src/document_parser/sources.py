@@ -43,6 +43,35 @@ ZIP_SIGNATURES = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
 SourceInput: TypeAlias = str | os.PathLike[str] | bytes | bytearray | BinaryIO
 
 
+class DocxOptions(FrozenModel):
+    """DOCX story-selection behavior."""
+
+    include_headers: bool = True
+    include_footers: bool = True
+    include_footnotes: bool = True
+    include_endnotes: bool = True
+    include_hidden_text: bool = False
+
+
+class PdfOptions(FrozenModel):
+    """Deterministic native-PDF extraction heuristics."""
+
+    detect_tables: bool = True
+    infer_headings: bool = True
+    min_native_alphanumeric_chars: int = Field(default=20, ge=0)
+    scan_image_coverage_threshold: float = Field(default=0.5, ge=0, le=1)
+    repeated_margin_min_fraction: float = Field(default=0.6, gt=0, le=1)
+
+
+class XlsxOptions(FrozenModel):
+    """Workbook content-selection and resource limits."""
+
+    include_hidden_sheets: bool = True
+    include_hidden_rows: bool = True
+    include_hidden_columns: bool = True
+    max_worksheet_cells: int = Field(default=1_000_000, gt=0)
+
+
 class ParseOptions(FrozenModel):
     """Safety limits applied before a format adapter is selected."""
 
@@ -51,12 +80,20 @@ class ParseOptions(FrozenModel):
     max_archive_entries: int = Field(default=10_000, gt=0)
     max_archive_uncompressed_bytes: int = Field(default=1024 * MEBIBYTE, gt=0)
     max_archive_compression_ratio: float = Field(default=100.0, gt=0)
+    max_assets: int = Field(default=2_000, gt=0)
+    max_asset_bytes: int = Field(default=25 * MEBIBYTE, gt=0)
+    max_total_asset_bytes: int = Field(default=100 * MEBIBYTE, gt=0)
     strict_extension: bool = False
+    docx: DocxOptions = Field(default_factory=DocxOptions)
+    pdf: PdfOptions = Field(default_factory=PdfOptions)
+    xlsx: XlsxOptions = Field(default_factory=XlsxOptions)
 
     @model_validator(mode="after")
     def validate_spool_threshold(self) -> ParseOptions:
         if self.spool_threshold_bytes > self.max_input_bytes:
             raise ValueError("spool_threshold_bytes cannot exceed max_input_bytes")
+        if self.max_asset_bytes > self.max_total_asset_bytes:
+            raise ValueError("max_asset_bytes cannot exceed max_total_asset_bytes")
         return self
 
 

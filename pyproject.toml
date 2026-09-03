@@ -32,7 +32,14 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "defusedxml>=0.7.1,<1",
+  "lxml>=5,<7",
+  "openpyxl>=3.1.5,<4",
+  "pdfplumber>=0.11.10,<0.12",
+  "pillow>=12.2,<13",
   "pydantic>=2.10,<3",
+  "pypdf>=6.16,<7",
+  "python-docx>=1.2,<2",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +50,7 @@ dev = [
   "pip-licenses>=5,<6",
   "pytest>=8,<10",
   "pytest-cov>=6,<8",
+  "reportlab>=4.4,<5",
   "ruff>=0.9,<1",
   "twine>=6,<7",
 ]
@@ -107,3 +115,15 @@ files = ["src", "tests"]
 python_version = "3.11"
 strict = true
 warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = [
+  "defusedxml.*",
+  "docx.*",
+  "lxml.*",
+  "openpyxl.*",
+  "pdfplumber.*",
+  "pypdf.*",
+  "reportlab.*",
+]
+ignore_missing_imports = true

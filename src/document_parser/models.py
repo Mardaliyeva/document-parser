@@ -247,6 +247,7 @@ class TableCell(FrozenModel):
     raw_value: JSONScalar = None
     displayed_text: str = ""
     formula: str | None = None
+    number_format: str | None = None
     blocks: tuple[ContentBlock, ...] = ()
 
 

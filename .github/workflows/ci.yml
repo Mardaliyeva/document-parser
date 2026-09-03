@@ -55,7 +55,17 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install with the minimum supported Pydantic line
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]" "pydantic==2.10.*"
+        run: >-
+          python -m pip install --upgrade pip &&
+          python -m pip install -e ".[dev]"
+          "defusedxml==0.7.1"
+          "lxml==5.*"
+          "openpyxl==3.1.5"
+          "pdfplumber==0.11.10"
+          "pillow==12.2.*"
+          "pydantic==2.10.*"
+          "pypdf==6.16.2"
+          "python-docx==1.2.0"
       - name: Run tests
         run: python -m pytest
 
@@ -108,7 +118,7 @@ jobs:
         run: >-
           python -m piplicenses
           --python .runtime-audit-venv/bin/python
-          --allow-only="Apache-2.0;Apache Software License;MIT;MIT License;BSD-2-Clause;BSD-3-Clause;BSD License;ISC;ISC License (ISCL);Python-2.0;PSF-2.0;Python Software Foundation License"
+          --allow-only="Apache-2.0;Apache Software License;Apache-2.0 OR BSD-3-Clause;MIT;MIT-0;MIT-CMU;MIT License;BSD-2-Clause;BSD-3-Clause;BSD License;BSD-3-Clause, Apache-2.0, dependency licenses;ISC;ISC License (ISCL);Python-2.0;PSF-2.0;Python Software Foundation License"
       - name: Create dependency reports
         shell: bash
         run: |

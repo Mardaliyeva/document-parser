@@ -6,7 +6,8 @@ from collections.abc import Iterable
 from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
-from document_parser.models import Document, DocumentFormat
+from document_parser.models import DocumentFormat
+from document_parser.results import AdapterOutput
 from document_parser.sources import AdapterInput, ParseOptions
 
 
@@ -16,8 +17,18 @@ class DocumentAdapter(Protocol):
 
     format: DocumentFormat
 
-    def parse(self, source: AdapterInput, options: ParseOptions) -> Document:
+    def parse(self, source: AdapterInput, options: ParseOptions) -> AdapterOutput:
         """Parse a prepared source into the common document IR."""
+
+
+def builtin_adapters() -> tuple[DocumentAdapter, ...]:
+    """Construct built-in adapters without importing their heavy engines."""
+
+    from document_parser.docx_adapter import DocxAdapter
+    from document_parser.pdf_adapter import PdfAdapter
+    from document_parser.xlsx_adapter import XlsxAdapter
+
+    return (DocxAdapter(), PdfAdapter(), XlsxAdapter())
 
 
 class AdapterRegistry:
