@@ -52,3 +52,10 @@ separate environment. The allowlist is enforced against that runtime environment
 so developer tooling does not hide or falsely block runtime changes. CI also
 produces a runtime license report and reproducible CycloneDX SBOM. Introducing a
 rejected, unknown, or unreviewed runtime license must fail the license job.
+
+## Current runtime dependencies
+
+Pydantic 2 is used for immutable IR validation, discriminated unions, and JSON
+schema/round-trip support. Pydantic and its runtime components use permissive
+licenses accepted by this policy. No document parser, OCR engine, or model asset
+is a runtime dependency in the core phase.

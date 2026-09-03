@@ -1,10 +1,11 @@
 # document-parser
 
-`document-parser` is an early-stage, local-first Python library for converting
-documents into structure-preserving Markdown and JSON suitable for downstream
-RAG workflows.
+`document-parser` is a local-first Python library for converting documents into
+structure-preserving data suitable for Markdown generation and downstream RAG
+workflows.
 
-> **Status:** pre-alpha foundation. Document conversion is not implemented yet.
+> **Status:** pre-alpha core. Input inspection and the Document IR are available;
+> built-in format adapters and Markdown conversion are not implemented yet.
 
 ## Planned scope
 
@@ -25,6 +26,39 @@ OCR, or include embedding and vector-database integrations.
 - Deterministic outputs for fixed input, options, and model versions.
 - Selective OCR instead of OCRing every page or embedded image.
 - Permissively licensed dependencies and model assets only.
+
+## Core API
+
+The current release can safely inspect paths, bytes, byte arrays, and binary
+streams. Detection uses file content rather than trusting the extension:
+
+```python
+from document_parser import DocumentFormat, inspect_source
+
+source = inspect_source(b"%PDF-1.7\n%%EOF\n", filename="example.pdf")
+assert source.format is DocumentFormat.PDF
+```
+
+`DocumentParser.parse()` returns the validated, format-independent `Document`
+IR when a matching adapter is registered. Version `0.2.0a1` intentionally ships
+without built-in adapters, so parsing a recognized DOCX, PDF, or XLSX with the
+default parser raises `AdapterNotAvailableError`.
+
+```python
+from document_parser import AdapterNotAvailableError, DocumentParser
+
+parser = DocumentParser()
+
+try:
+    parser.parse(b"%PDF-1.7\n%%EOF\n", filename="example.pdf")
+except AdapterNotAvailableError:
+    pass
+```
+
+Advanced consumers may inject an implementation of `DocumentAdapter`. The
+adapter receives a bounded, seekable `AdapterInput` and must return a `Document`
+whose source matches `AdapterInput.info`. See
+[architecture.md](docs/architecture.md) for the complete boundary.
 
 ## Development setup
 
@@ -57,15 +91,14 @@ CycloneDX SBOM. Generated audit reports and model artifacts are not committed.
 
 ## Roadmap
 
-1. Define the public API and document intermediate representation.
-2. Add secure input validation and format routing.
-3. Add native DOCX conversion.
-4. Add born-digital PDF conversion.
-5. Add local OCR for scanned and mixed PDFs.
-6. Add native XLSX conversion.
-7. Add selective OCR for text-bearing Office images.
-8. Add structural normalization, quality scoring, and canonical serializers.
-9. Add the production CLI, batch processing, and tagged release workflow.
+1. **Complete:** define the public API, Document IR, safe input validation, and routing.
+2. Add native DOCX conversion.
+3. Add born-digital PDF conversion.
+4. Add local OCR for scanned and mixed PDFs.
+5. Add native XLSX conversion.
+6. Add selective OCR for text-bearing Office images.
+7. Add structural normalization, quality scoring, and canonical serializers.
+8. Add the production CLI, batch processing, and tagged release workflow.
 
 See [architecture.md](docs/architecture.md) for the intended component boundaries.
 
