@@ -1,7 +1,7 @@
 """Tests for installed distribution metadata and typing marker."""
 
 from importlib import resources
-from importlib.metadata import metadata, version
+from importlib.metadata import entry_points, metadata, version
 
 import document_parser
 
@@ -37,6 +37,11 @@ def test_distribution_metadata_matches_package() -> None:
     assert any(requirement.startswith("paddleocr") for requirement in ocr_requirements)
     assert any(requirement.startswith("platformdirs") for requirement in ocr_requirements)
     assert any(requirement.startswith("pypdfium2") for requirement in ocr_requirements)
+    scripts = entry_points(group="console_scripts")
+    assert any(
+        item.name == "document-parser" and item.value == "document_parser.cli:main"
+        for item in scripts
+    )
 
 
 def test_typing_marker_is_packaged() -> None:

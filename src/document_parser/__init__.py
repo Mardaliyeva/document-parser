@@ -2,6 +2,15 @@
 
 from document_parser.__about__ import __version__
 from document_parser.adapters import AdapterRegistry, DocumentAdapter
+from document_parser.batch import (
+    BatchItemReport,
+    BatchItemStatus,
+    BatchOptions,
+    BatchReport,
+    collect_input_paths,
+    convert_batch,
+    write_conversion_bundle,
+)
 from document_parser.exceptions import (
     AdapterExecutionError,
     AdapterNotAvailableError,
@@ -40,6 +49,9 @@ from document_parser.models import (
     ListKind,
     PageBreakBlock,
     ParagraphBlock,
+    QualityReport,
+    QualityScope,
+    QualityUnit,
     SourceInfo,
     SourceLocation,
     TableBlock,
@@ -47,6 +59,7 @@ from document_parser.models import (
     TableRow,
     TextSpan,
 )
+from document_parser.normalization import NormalizationOptions, normalize_document
 from document_parser.ocr import (
     OcrDevice,
     OcrEngine,
@@ -71,6 +84,7 @@ from document_parser.ocr_models import (
     verify_ocr_models,
 )
 from document_parser.parser import DocumentParser, convert, inspect_source, parse
+from document_parser.quality import QualityOptions, assess_quality
 from document_parser.results import AdapterOutput, AssetPayload, ConversionResult
 from document_parser.sources import (
     AdapterInput,
@@ -90,6 +104,10 @@ __all__ = [
     "AdapterRegistry",
     "AssetPayload",
     "AssetRef",
+    "BatchItemReport",
+    "BatchItemStatus",
+    "BatchOptions",
+    "BatchReport",
     "BoundingBox",
     "ContainerBlock",
     "ContainerRole",
@@ -115,6 +133,7 @@ __all__ = [
     "ListItem",
     "ListKind",
     "MarkdownOptions",
+    "NormalizationOptions",
     "OcrConfigurationError",
     "OcrDependencyNotAvailableError",
     "OcrDevice",
@@ -140,6 +159,10 @@ __all__ = [
     "ParagraphBlock",
     "ParseOptions",
     "PdfOptions",
+    "QualityOptions",
+    "QualityReport",
+    "QualityScope",
+    "QualityUnit",
     "SourceInfo",
     "SourceInput",
     "SourceLocation",
@@ -155,10 +178,15 @@ __all__ = [
     "UnsupportedFormatError",
     "XlsxOptions",
     "__version__",
+    "assess_quality",
+    "collect_input_paths",
     "convert",
+    "convert_batch",
     "inspect_source",
+    "normalize_document",
     "parse",
     "prepare_ocr_models",
     "to_markdown",
     "verify_ocr_models",
+    "write_conversion_bundle",
 ]

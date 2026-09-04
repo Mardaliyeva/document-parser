@@ -12,7 +12,9 @@ from document_parser.exceptions import (
 )
 from document_parser.markdown import MarkdownOptions, to_markdown
 from document_parser.models import Document, SourceInfo
+from document_parser.normalization import normalize_document
 from document_parser.ocr import OcrEngine, apply_pdf_ocr
+from document_parser.quality import apply_quality
 from document_parser.results import AdapterOutput, ConversionResult
 from document_parser.sources import ParseOptions, SourceInput, prepare_source
 
@@ -78,6 +80,9 @@ class DocumentParser:
                 self.options,
                 self._ocr_engine,
             )
+            document = normalize_document(output.document, options=self.options.normalization)
+            document = apply_quality(document, self.options.quality)
+            output = output.model_copy(update={"document": document})
             return output
 
     def parse(self, source: SourceInput, *, filename: str | None = None) -> Document:

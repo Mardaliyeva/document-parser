@@ -509,6 +509,7 @@ def _page_blocks(
         attributes: dict[str, object] = {}
         if repeated_margin:
             attributes["story"] = "header" if line.top <= page.height * 0.1 else "footer"
+            attributes["repeated_margin"] = True
         location = SourceLocation(
             page_number=page.page_number,
             block_index=context.sequence + 1,

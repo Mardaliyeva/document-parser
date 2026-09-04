@@ -207,9 +207,10 @@ def test_full_document_json_round_trip_and_frozen_contract() -> None:
     schema = Document.model_json_schema()
 
     assert restored == document
-    assert restored.schema_version == "0.1"
+    assert restored.schema_version == "0.2"
     assert restored.blocks[0].type == "container"
-    assert schema["properties"]["schema_version"]["const"] == "0.1"
+    assert schema["properties"]["schema_version"]["enum"] == ["0.1", "0.2"]
+    assert schema["properties"]["schema_version"]["default"] == "0.2"
     field_name = "status"
     with pytest.raises(ValidationError, match="frozen"):
         setattr(document, field_name, DocumentStatus.COMPLETE)

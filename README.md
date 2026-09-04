@@ -4,9 +4,10 @@
 structure-preserving data suitable for Markdown generation and downstream RAG
 workflows.
 
-> **Status:** pre-alpha. Native DOCX/PDF/XLSX conversion and opt-in local OCR for
-> scanned or mixed PDFs are available. OCR is disabled by default and never uses
-> a cloud service.
+> **Status:** pre-alpha. Native DOCX/PDF/XLSX conversion, opt-in local OCR,
+> source reconciliation, conservative normalization, quality reporting, and a
+> production-oriented batch CLI are available. OCR is disabled by default and
+> never uses a cloud service.
 
 ## Supported input
 
@@ -94,6 +95,19 @@ Input, archive, worksheet, and asset limits are enforced before or during
 extraction. Recoverable fidelity losses produce diagnostics and `partial`; an
 OCR candidate produces `needs_review` while preserving available native content.
 
+After extraction, the parser reconciles overlapping native/OCR sources,
+normalizes text without semantic rewriting, and attaches a transparent
+`QualityReport` to IR schema `0.2`. Legacy IR `0.1` JSON remains readable.
+
+```python
+from document_parser import NormalizationOptions, ParseOptions, QualityOptions
+
+options = ParseOptions(
+    normalization=NormalizationOptions(repair_heading_levels=True),
+    quality=QualityOptions(review_threshold=0.75),
+)
+```
+
 The dependency-free Markdown serializer preserves hierarchy, emits simple
 tables as GFM and merge-aware tables as HTML, uses content-addressed asset links,
 hides repeated headers/footers and hidden sheets by default, and marks PDF pages
@@ -150,6 +164,23 @@ result keeps native content active as a safe fallback.
 See [OCR setup and behavior](docs/ocr.md) for model-store security, custom
 engines, limits, diagnostics, and reproducibility details.
 
+## Command-line and batch conversion
+
+The base package installs a dependency-free `document-parser` command:
+
+```powershell
+document-parser convert .\documents --recursive --output .\converted
+document-parser inspect .\documents\report.pdf
+document-parser models verify --target .\models
+document-parser version
+```
+
+Each successful bundle contains `document.md`, `document.json`, `manifest.json`,
+and an `assets` directory. `batch-report.json` records successes, review states,
+partial results, and isolated failures. Existing bundles require `--overwrite`.
+See [CLI and bundle format](docs/cli.md) for all options and exit codes. The same
+batch behavior is available from Python through `convert_batch()`.
+
 ## Development setup
 
 Create a Python 3.11 or 3.12 virtual environment and install the development
@@ -177,7 +208,8 @@ Run the local checks:
 
 CI tests Python 3.11/3.12 on Windows and Linux, verifies minimum dependency
 versions, enforces 100% branch coverage and the runtime-license allowlist, and
-creates a reproducible CycloneDX SBOM.
+creates a reproducible CycloneDX SBOM. A separate manual/weekly workflow runs
+real PaddleOCR language and table smoke tests with a verified model cache.
 
 ## Roadmap
 
@@ -185,8 +217,11 @@ creates a reproducible CycloneDX SBOM.
 2. **Complete:** Document IR, safe input preparation, detection, and routing.
 3. **Complete:** native DOCX/PDF/XLSX adapters and canonical Markdown.
 4. **Complete:** opt-in selective local OCR for scanned and mixed PDF pages.
-5. Add native/OCR reconciliation, structural normalization, and quality scoring.
-6. Add the production CLI, batch conversion, and tagged release workflow.
+5. **Complete:** native/OCR reconciliation, structural normalization, and quality scoring.
+6. **Complete:** production CLI, batch conversion, and tagged release workflow.
+
+Chunking, embeddings, vector stores, and Kontakt-specific mapping remain
+consumer responsibilities.
 
 See [architecture.md](docs/architecture.md) for the intended component boundaries.
 

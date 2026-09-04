@@ -89,7 +89,7 @@ jobs:
         run: >-
           python -c "import sys, platformdirs, pypdfium2; import document_parser;
           assert 'paddleocr' not in sys.modules;
-          assert document_parser.__version__ == '0.4.0a1'"
+          assert document_parser.__version__ == '0.6.0a1'"
 
   package:
     name: Build package

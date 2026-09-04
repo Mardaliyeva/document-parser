@@ -7,8 +7,8 @@ import document_parser
 
 
 def test_package_import_exposes_version_only() -> None:
-    assert document_parser.__version__ == "0.4.0a1"
-    assert document_parser.SCHEMA_VERSION == "0.1"
+    assert document_parser.__version__ == "0.6.0a1"
+    assert document_parser.SCHEMA_VERSION == "0.2"
     assert {
         "Document",
         "DocumentParser",

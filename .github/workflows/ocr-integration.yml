@@ -1,0 +1,48 @@
+name: Real OCR integration
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 0"
+
+permissions:
+  contents: read
+
+jobs:
+  paddle-smoke:
+    name: PaddleOCR (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install OCR runtime and development dependencies
+        run: >-
+          python -m pip install --upgrade pip &&
+          python -m pip install -e ".[dev,ocr]" "paddlepaddle>=3,<4"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/document-parser-models
+          key: document-parser-paddle37-models-${{ runner.os }}-v1
+      - name: Prepare and checksum-verify local models
+        env:
+          DOCUMENT_PARSER_OCR_MODEL_STORE: ${{ runner.temp }}/document-parser-models
+        run: >-
+          python -c "import os; from document_parser import prepare_ocr_models, verify_ocr_models;
+          target=os.environ['DOCUMENT_PARSER_OCR_MODEL_STORE']; report=verify_ocr_models(target);
+          print(report.model_dump_json(indent=2));
+          prepare_ocr_models(target) if not report.valid else None"
+      - name: Run real AZ/EN/RU and structured-table smoke tests
+        env:
+          DOCUMENT_PARSER_RUN_OCR_INTEGRATION: "1"
+          DOCUMENT_PARSER_OCR_MODEL_STORE: ${{ runner.temp }}/document-parser-models
+          PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+        run: python -m pytest -m ocr_integration --no-cov

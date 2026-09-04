@@ -33,13 +33,25 @@ Selective PDF OCR (OFF / AUTO / FORCE)
   +-- native/OCR provenance and quality diagnostics
          |
          v
-AdapterOutput(Document IR 0.1 + asset payloads)
+Native/OCR reconciliation
+         |
+         v
+Fact-preserving structural normalization
+         |
+         v
+Deterministic quality scoring
+         |
+         v
+AdapterOutput(Document IR 0.2 + asset payloads)
          |
          v
 Canonical Markdown serializer
          |
          v
 ConversionResult(Document + Markdown + assets)
+         |
+         v
+Python API or atomic CLI bundle
 ```
 
 OCR is an opt-in post-processing stage for PDF adapter output. The native PDF
@@ -57,9 +69,11 @@ XLSX never enter this stage.
   extracting the archive or trusting its extension.
 - **Adapters:** understand one source format and emit `AdapterOutput` with common blocks and assets.
 - **OCR:** renders only selected PDF pages and maps engine-neutral semantic results into IR.
-- **Normalization:** performs fact-preserving structural cleanup on document blocks.
-- **Quality:** records coverage and fidelity signals and chooses a result status.
+- **Reconciliation:** compares overlapping native/OCR blocks and keeps explicit source decisions.
+- **Normalization:** performs conservative cleanup while recording changed source values.
+- **Quality:** scores coverage, confidence, structure, and fidelity and resolves review status.
 - **Serializer:** creates deterministic RAG-friendly Markdown from validated IR.
+- **Batch/CLI:** writes complete bundles atomically and isolates per-source failures.
 
 The library will not contain application-specific storage, authentication,
 embedding, vector search, agent, or UI code. These belong to consumers such as
@@ -90,7 +104,7 @@ page was selected. Renderer and model/configuration failures use typed OCR
 exceptions; an isolated page inference failure preserves the native page and
 sets the document to `partial`.
 
-## Document IR 0.1
+## Document IR 0.2
 
 The immutable Pydantic IR uses discriminated blocks for containers, headings,
 paragraphs, lists, tables, figures, and page breaks. Nested blocks preserve list,
@@ -99,8 +113,8 @@ page, worksheet, cell-range, asset, confidence, and coordinate provenance.
 
 Every `Document` uses `sha256:<source hash>` as its identity. Block and asset IDs
 must be unique, figures must reference declared assets, and table merges cannot
-overlap or exceed declared dimensions. JSON serialization and validation use the
-same schema version.
+overlap or exceed declared dimensions. Schema `0.2` adds a `QualityReport`;
+schema `0.1` payloads remain readable but cannot contain that field.
 
 Expected failures use typed exceptions. A returned document can be `complete`,
 `partial`, or `needs_review`; operations that fail do not return a synthetic
@@ -158,6 +172,32 @@ bounded downloads, safe tar validation, atomic directory replacement, and a
 manifest containing archive and extracted-file hashes. Parsing verifies the
 local model inventory and does not download or update models.
 
+## Reconciliation, normalization, and quality
+
+Reconciliation is page-local. A native/OCR pair must meet the configured
+geometry threshold before text similarity is considered. Near-identical pairs
+are duplicates; disagreements are retained as conflicts. Scan candidates may
+prefer OCR when its confidence clears the configured margin, while forced OCR
+on native pages prefers native extraction. Unmatched content stays active.
+
+Normalization applies Unicode NFC, stable line endings, safe whitespace
+cleanup, adjacent equal-format span merging, obvious heading-jump repair, and
+RAG exclusion for empty or repeated-margin content. Original spans and heading
+levels are recorded when changed. Body duplicates, hyphenation, formulas, table
+geometry, coordinates, and assets are not semantically rewritten.
+
+Quality uses a documented weighted score: 35% coverage, 30% confidence, 20%
+structure, and 15% fidelity. Unit summaries are emitted per page, worksheet, or
+whole document. Existing `partial` status cannot be downgraded. A low score,
+unresolved conflict, or explicit OCR review signal produces `needs_review`.
+
+## CLI bundle boundary
+
+Directory discovery filters supported extensions, while routing remains
+content-based. Workers own independent parser instances and reports are ordered
+by normalized source path. Successful conversions are staged and renamed into
+content-addressed bundles containing Markdown, IR JSON, a manifest, and assets.
+
 ## Markdown contract
 
 The in-house serializer has no runtime dependency. It emits document/sheet
@@ -169,8 +209,8 @@ final newline.
 
 ## Version-one boundary
 
-Version one will support DOCX, PDF, and XLSX conversion only. It will expose a
-Python API and a CLI. Chunking, embeddings, and search-index writes are explicitly
-outside version one. Release `0.4.0a1` includes selective local PDF OCR while
-retaining IR schema `0.1`. Broader native/OCR reconciliation, structural
-normalization, and cross-document quality scoring remain future work.
+Version one supports DOCX, PDF, and XLSX conversion only through Python and CLI
+interfaces. Development release `0.6.0a1` uses IR schema `0.2` and includes
+selective OCR, reconciliation, normalization, quality scoring, and atomic batch
+bundles. Chunking, embeddings, search-index writes, application storage, and
+Kontakt-specific mapping remain outside this library.

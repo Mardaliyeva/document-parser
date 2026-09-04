@@ -110,11 +110,13 @@ Every emitted OCR block records page number, a PDF-point bounding box,
 confidence, engine, model inventory, profile, and
 `extraction_method="ocr"`.
 
-When OCR returns usable text, native blocks on that page remain recursively in
-IR with `active_for_rag=False`; Markdown therefore contains one active text
-source. A full-page scan image is hidden from Markdown but retained as an asset.
-If OCR returns no text, native content remains active as a fallback and the page
-is marked `needs_review`.
+When OCR returns usable text, native blocks remain in IR and the reconciliation
+stage compares text, coordinates, and confidence. It selects one active source
+for overlapping duplicates/conflicts while preserving non-overlapping native
+content. Markdown avoids duplicate text without discarding provenance. A
+full-page scan image is hidden from Markdown but retained as an asset. If OCR
+returns no text, native content remains active as a fallback and the page is
+marked `needs_review`.
 
 Important diagnostics include:
 

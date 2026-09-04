@@ -42,6 +42,9 @@ dependencies = [
   "python-docx>=1.2,<2",
 ]
 
+[project.scripts]
+document-parser = "document_parser.cli:main"
+
 [project.optional-dependencies]
 ocr = [
   "paddleocr>=3.7,<4",
@@ -93,6 +96,9 @@ include = [
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers --cov=document_parser --cov-report=term-missing --cov-fail-under=100"
 testpaths = ["tests"]
+markers = [
+  "ocr_integration: requires a prepared real PaddleOCR runtime and model store",
+]
 
 [tool.coverage.run]
 branch = true

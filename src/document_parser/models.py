@@ -9,7 +9,7 @@ from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION: Literal["0.2"] = "0.2"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 DOCUMENT_ID_PATTERN = r"^sha256:[0-9a-f]{64}$"
 IDENTIFIER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
@@ -40,6 +40,14 @@ class DocumentStatus(StrEnum):
     COMPLETE = "complete"
     PARTIAL = "partial"
     NEEDS_REVIEW = "needs_review"
+
+
+class QualityScope(StrEnum):
+    """Granularity represented by one quality measurement."""
+
+    DOCUMENT = "document"
+    PAGE = "page"
+    SHEET = "sheet"
 
 
 class DiagnosticSeverity(StrEnum):
@@ -339,6 +347,43 @@ class AssetRef(FrozenModel):
         return value
 
 
+class QualityUnit(FrozenModel):
+    """Quality summary for one document, page, or worksheet."""
+
+    scope: QualityScope
+    identifier: str = Field(min_length=1)
+    text_characters: int = Field(ge=0)
+    confidence: float = Field(ge=0, le=1)
+    score: float = Field(ge=0, le=1)
+    flags: tuple[str, ...] = ()
+
+    @field_validator("flags")
+    @classmethod
+    def validate_flags(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if value != tuple(sorted(set(value))):
+            raise ValueError("quality flags must be unique and sorted")
+        return value
+
+
+class QualityReport(FrozenModel):
+    """Deterministic document-level extraction-quality measurements."""
+
+    overall_score: float = Field(ge=0, le=1)
+    coverage_score: float = Field(ge=0, le=1)
+    confidence_score: float = Field(ge=0, le=1)
+    structure_score: float = Field(ge=0, le=1)
+    fidelity_score: float = Field(ge=0, le=1)
+    units: tuple[QualityUnit, ...] = Field(min_length=1)
+    flags: tuple[str, ...] = ()
+
+    @field_validator("flags")
+    @classmethod
+    def validate_flags(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if value != tuple(sorted(set(value))):
+            raise ValueError("quality flags must be unique and sorted")
+        return value
+
+
 def _walk_blocks(blocks: tuple[ContentBlock, ...]) -> tuple[ContentBlock, ...]:
     discovered: list[ContentBlock] = []
     for block in blocks:
@@ -358,7 +403,7 @@ def _walk_blocks(blocks: tuple[ContentBlock, ...]) -> tuple[ContentBlock, ...]:
 class Document(FrozenModel):
     """The loss-preserving, format-independent document root."""
 
-    schema_version: Literal["0.1"] = "0.1"
+    schema_version: Literal["0.1", "0.2"] = SCHEMA_VERSION
     document_id: str = Field(pattern=DOCUMENT_ID_PATTERN)
     source: SourceInfo
     metadata: DocumentMetadata = Field(default_factory=DocumentMetadata)
@@ -366,12 +411,15 @@ class Document(FrozenModel):
     assets: tuple[AssetRef, ...] = ()
     status: DocumentStatus = DocumentStatus.COMPLETE
     diagnostics: tuple[Diagnostic, ...] = ()
+    quality: QualityReport | None = None
 
     @model_validator(mode="after")
     def validate_document(self) -> Document:
         expected_id = f"sha256:{self.source.sha256}"
         if self.document_id != expected_id:
             raise ValueError("document_id must be derived from source.sha256")
+        if self.schema_version == "0.1" and self.quality is not None:
+            raise ValueError("IR schema 0.1 cannot contain a quality report")
 
         all_blocks = _walk_blocks(self.blocks)
         block_ids = tuple(block.block_id for block in all_blocks)

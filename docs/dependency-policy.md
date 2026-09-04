@@ -71,7 +71,7 @@ Their runtime dependency trees are checked in CI against the allowlist. PyMuPDF
 is intentionally excluded because its AGPL/commercial licensing does not match
 this project's permissive runtime policy.
 
-Release `0.4.0a1` keeps OCR outside the base dependency set. The `ocr` extra
+Release `0.6.0a1` keeps OCR outside the base dependency set. The `ocr` extra
 adds PaddleOCR, pypdfium2, and platformdirs. PaddlePaddle is deliberately not
 pinned by the package because its CPU/GPU wheel and installation index are
 platform-specific; consumers must install a compatible 3.x runtime explicitly.
@@ -84,3 +84,8 @@ dynamically imported library used as a normal Python dependency; it is not part
 of the base wheel and does not change this project's Apache-2.0 license. CI
 allows LGPL metadata only in the isolated OCR-extra audit. A PaddleOCR upgrade
 must re-check this dependency and its exact license terms.
+
+Normalization, quality scoring, batch conversion, and the CLI use only the
+Python standard library plus the existing validated models. No CLI framework or
+text-similarity package is added to runtime dependencies. Release artifacts are
+also installed into an isolated environment before their runtime SBOM is built.
