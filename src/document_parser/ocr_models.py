@@ -236,7 +236,7 @@ def _file_records(model_dir: Path) -> tuple[OcrModelFile, ...]:
         )
     if not records:
         raise OcrModelNotAvailableError("prepared OCR model directory is empty")
-    return tuple(records)
+    return tuple(sorted(records, key=lambda record: record.path))
 
 
 def _prepare_one(target: Path, name: str) -> OcrModelRecord:

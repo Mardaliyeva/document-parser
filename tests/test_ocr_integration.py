@@ -9,7 +9,16 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw, ImageFont
 
-from document_parser import OcrMode, OcrOptions, OcrPageInput, OcrProfile, OcrRegionKind
+from document_parser import (
+    DocumentParser,
+    OcrMode,
+    OcrOptions,
+    OcrPageInput,
+    OcrProfile,
+    OcrRegionKind,
+    ParseOptions,
+)
+from document_parser.ocr import _render_page
 from document_parser.paddle_ocr import PaddleOcrEngine
 
 pytestmark = [
@@ -26,6 +35,7 @@ _FONT_CANDIDATES = (
     Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
     Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
 )
+_SYNTHETIC_SCAN = Path(__file__).parent / "fixtures" / "synthetic" / "scanned-image-only.pdf"
 
 
 def _font(size: int) -> ImageFont.FreeTypeFont:
@@ -58,22 +68,19 @@ def _model_store() -> Path:
 
 
 def test_real_text_profile_recognizes_az_en_and_ru() -> None:
-    image = Image.new("RGB", (1800, 600), "white")
-    ImageDraw.Draw(image).multiline_text(
-        (80, 70),
-        "Azərbaycan sənədi\nEnglish document\n\u0420\u0443\u0441\u0441\u043a\u0438\u0439 "
-        "\u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442",
-        fill="black",
-        font=_font(72),
-        spacing=55,
-    )
     options = OcrOptions(
         mode=OcrMode.FORCE,
         profile=OcrProfile.TEXT,
         model_store=_model_store(),
         languages=("az", "en", "ru"),
     )
-    result = PaddleOcrEngine(options).recognize(_page(image), options)
+    pdfium = pytest.importorskip("pypdfium2")
+    pdf = pdfium.PdfDocument(_SYNTHETIC_SCAN.read_bytes())
+    try:
+        page = _render_page(pdf, 1, 0, options)
+    finally:
+        pdf.close()
+    result = PaddleOcrEngine(options).recognize(page, options)
     text = " ".join(region.text for region in result.regions).casefold()
     assert "english" in text
     assert any(character in text for character in "əğıöüşç")
@@ -112,3 +119,20 @@ def test_real_structured_profile_recovers_a_simple_table() -> None:
     assert tables[0].table is not None
     assert tables[0].table.row_count >= 2
     assert tables[0].table.column_count >= 2
+
+
+def test_real_ocr_runs_through_the_full_parser_pipeline() -> None:
+    options = OcrOptions(
+        mode=OcrMode.AUTO,
+        profile=OcrProfile.TEXT,
+        model_store=_model_store(),
+        languages=("az", "en", "ru"),
+    )
+    result = DocumentParser(options=ParseOptions(ocr=options)).convert(_SYNTHETIC_SCAN)
+    text = result.markdown.casefold()
+
+    assert "english" in text
+    assert any(character in text for character in "əğıöüşç")
+    assert any("\u0430" <= character <= "\u044f" or character == "\u0451" for character in text)
+    assert any(item.code == "ocr.applied" for item in result.document.diagnostics)
+    assert not any(item.code == "pdf.ocr_required" for item in result.document.diagnostics)

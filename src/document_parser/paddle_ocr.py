@@ -314,6 +314,11 @@ class PaddleOcrEngine:
     def _common(self, *, size: str) -> dict[str, object]:
         return {
             "device": self._device(),
+            # PaddlePaddle 3.3.x on Windows can fail in PIR -> oneDNN attribute
+            # conversion for the bundled OCRv6 detection graph. Keep the
+            # reference backend portable and deterministic; callers that need
+            # accelerated inference can still select the GPU device.
+            "enable_mkldnn": False,
             "use_doc_orientation_classify": self._options.use_orientation,
             "doc_orientation_classify_model_dir": self._path("PP-LCNet_x1_0_doc_ori"),
             "use_doc_unwarping": (
@@ -364,6 +369,7 @@ class PaddleOcrEngine:
                 model_name="eslav_PP-OCRv5_mobile_rec",
                 model_dir=self._path("eslav_PP-OCRv5_mobile_rec"),
                 device=self._device(),
+                enable_mkldnn=False,
             )
         except (AttributeError, TypeError, ValueError) as exc:
             raise OcrConfigurationError(

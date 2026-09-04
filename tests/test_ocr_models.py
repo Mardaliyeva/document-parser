@@ -309,6 +309,15 @@ def test_model_file_inventory_and_verification_failure_modes(
     with pytest.raises(OcrModelNotAvailableError, match="empty"):
         _file_records(empty)
 
+    mixed_case = tmp_path / "mixed-case"
+    mixed_case.mkdir()
+    (mixed_case / "config.yml").write_bytes(b"config")
+    (mixed_case / "LICENSE").write_bytes(b"license")
+    assert tuple(record.path for record in _file_records(mixed_case)) == (
+        "LICENSE",
+        "config.yml",
+    )
+
     record = model_record("model")
     write_store(tmp_path / "missing-dir", record)
     (tmp_path / "missing-dir" / "model" / "inference.json").unlink()

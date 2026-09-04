@@ -1,0 +1,54 @@
+{
+  "schema_version": "0.1",
+  "fixtures": [
+    {
+      "filename": "digital-native.pdf",
+      "format": "pdf",
+      "scenario": "two-page born-digital PDF with Unicode text, a ruled table, repeated margins, and two columns",
+      "size_bytes": 128214,
+      "sha256": "bef3dda09b6f9de5b38a955c7b166d4bd545694017d081b6f5c05b8c81bd68ec"
+    },
+    {
+      "filename": "encrypted-negative.pdf",
+      "format": "pdf",
+      "scenario": "encrypted PDF that must be rejected deterministically",
+      "size_bytes": 890,
+      "sha256": "2bdd54a613558d4a0537315a19bdb86c895c1f484b737e2bca83eae926ffe012"
+    },
+    {
+      "filename": "mixed-native-scan.pdf",
+      "format": "pdf",
+      "scenario": "one born-digital page followed by one image-only scan page",
+      "size_bytes": 199577,
+      "sha256": "6ea0e15aa0829f55065d999fac331e27495b763a96140df9d323af592eb9cab2"
+    },
+    {
+      "filename": "rich-structure.docx",
+      "format": "docx",
+      "scenario": "headings, formatted spans, hyperlink, nested lists, merged table, image, page break, and sections",
+      "size_bytes": 44708,
+      "sha256": "f9a3263c331f4e4eeb709db4369f3c66cc06e8b5f2fdc26ecda9344178ce24ad"
+    },
+    {
+      "filename": "rotated-scan.pdf",
+      "format": "pdf",
+      "scenario": "image-only scan with a 90 degree PDF page rotation",
+      "size_bytes": 76965,
+      "sha256": "7dfd7b9168f6d92bee7c8312b8680fcca162ffa1738f0ff5e0e3f54f4604c6ac"
+    },
+    {
+      "filename": "scanned-image-only.pdf",
+      "format": "pdf",
+      "scenario": "full-page scan containing Azerbaijani, English, Russian, a list, and a ruled table",
+      "size_bytes": 77368,
+      "sha256": "661ecb999a8c1150f8bd8a4803a4382dfcf3b6283c1ba3786cbc71f104b063e3"
+    },
+    {
+      "filename": "structured-workbook.xlsx",
+      "format": "xlsx",
+      "scenario": "multiple sheets, typed values, formulas, formal and sparse tables, merged cells, and an image",
+      "size_bytes": 7802,
+      "sha256": "7f7751cbf5e8be5ffc5b76cf405ec3031cf329a4d174195242f8a318badaf3b5"
+    }
+  ]
+}

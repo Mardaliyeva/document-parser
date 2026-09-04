@@ -257,7 +257,9 @@ def test_text_profile_builds_local_pipeline_and_reconciles_russian(
     assert result.ambiguous_language is False
     assert module.calls[0][0] == "text"
     assert module.calls[0][1]["device"] == "cpu"
+    assert module.calls[0][1]["enable_mkldnn"] is False
     assert module.calls[0][1]["use_doc_unwarping"] is False
+    assert module.calls[1][1]["enable_mkldnn"] is False
 
 
 def test_structured_profile_maps_layout_tables_and_fallbacks(
