@@ -12,6 +12,7 @@ from document_parser.exceptions import (
 )
 from document_parser.markdown import MarkdownOptions, to_markdown
 from document_parser.models import Document, SourceInfo
+from document_parser.ocr import OcrEngine, apply_pdf_ocr
 from document_parser.results import AdapterOutput, ConversionResult
 from document_parser.sources import ParseOptions, SourceInput, prepare_source
 
@@ -19,16 +20,18 @@ from document_parser.sources import ParseOptions, SourceInput, prepare_source
 class DocumentParser:
     """Parser configuration and immutable format-adapter registry."""
 
-    __slots__ = ("_registry", "options")
+    __slots__ = ("_ocr_engine", "_registry", "options")
 
     def __init__(
         self,
         *,
         options: ParseOptions | None = None,
         adapters: Iterable[DocumentAdapter] | None = None,
+        ocr_engine: OcrEngine | None = None,
     ) -> None:
         self.options = options or ParseOptions()
         self._registry = AdapterRegistry(builtin_adapters() if adapters is None else adapters)
+        self._ocr_engine = ocr_engine
 
     @property
     def supported_formats(self) -> tuple[str, ...]:
@@ -69,6 +72,12 @@ class DocumentParser:
                     "adapter returned a Document for a different source",
                     source_name=prepared.info.name,
                 )
+            output, self._ocr_engine = apply_pdf_ocr(
+                prepared,
+                output,
+                self.options,
+                self._ocr_engine,
+            )
             return output
 
     def parse(self, source: SourceInput, *, filename: str | None = None) -> Document:

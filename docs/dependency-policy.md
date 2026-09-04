@@ -42,8 +42,12 @@ model weights. Each model must have an entry recording:
 - required attribution;
 - redistribution constraints.
 
-Model binaries must not be committed to the Git repository. They will be fetched
-and verified during a controlled build step once OCR support is introduced.
+Model binaries must not be committed to the Git repository. They are fetched
+only through the explicit `prepare_ocr_models()` API. The generated local
+manifest records the release family, source URL, archive hash and size, maximum
+size, engine compatibility, declared license/notice, and every extracted file's
+size and SHA-256. `parse()` and `convert()` only verify that local inventory and
+never download or update it.
 
 ## Enforcement
 
@@ -65,5 +69,18 @@ The native-conversion release uses:
 
 Their runtime dependency trees are checked in CI against the allowlist. PyMuPDF
 is intentionally excluded because its AGPL/commercial licensing does not match
-this project's permissive runtime policy. No OCR engine or model asset is a
-runtime dependency in release `0.3.0a1`.
+this project's permissive runtime policy.
+
+Release `0.4.0a1` keeps OCR outside the base dependency set. The `ocr` extra
+adds PaddleOCR, pypdfium2, and platformdirs. PaddlePaddle is deliberately not
+pinned by the package because its CPU/GPU wheel and installation index are
+platform-specific; consumers must install a compatible 3.x runtime explicitly.
+Base and OCR-extra environments receive separate license reports and CycloneDX
+SBOMs. PaddleOCR model files are not distributed in the wheel or source archive.
+
+The OCR-extra audit has one documented LGPL exception: PaddleOCR's current
+`paddlex[ocr-core]` dependency installs `python-bidi`. It is an unmodified,
+dynamically imported library used as a normal Python dependency; it is not part
+of the base wheel and does not change this project's Apache-2.0 license. CI
+allows LGPL metadata only in the isolated OCR-extra audit. A PaddleOCR upgrade
+must re-check this dependency and its exact license terms.

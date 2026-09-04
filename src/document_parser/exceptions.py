@@ -16,6 +16,10 @@ class ErrorCode(StrEnum):
     UNSAFE_DOCUMENT = "unsafe_document"
     ADAPTER_NOT_AVAILABLE = "adapter_not_available"
     ADAPTER_EXECUTION_ERROR = "adapter_execution_error"
+    OCR_DEPENDENCY_NOT_AVAILABLE = "ocr_dependency_not_available"
+    OCR_MODEL_NOT_AVAILABLE = "ocr_model_not_available"
+    OCR_CONFIGURATION_ERROR = "ocr_configuration_error"
+    OCR_EXECUTION_ERROR = "ocr_execution_error"
 
 
 class DocumentParserError(Exception):
@@ -80,3 +84,27 @@ class AdapterExecutionError(DocumentParserError):
     """Raised when an adapter violates its contract or fails unexpectedly."""
 
     code = ErrorCode.ADAPTER_EXECUTION_ERROR
+
+
+class OcrDependencyNotAvailableError(DocumentParserError):
+    """Raised when explicitly enabled OCR dependencies are not installed."""
+
+    code = ErrorCode.OCR_DEPENDENCY_NOT_AVAILABLE
+
+
+class OcrModelNotAvailableError(DocumentParserError):
+    """Raised when a configured local OCR model store is missing or invalid."""
+
+    code = ErrorCode.OCR_MODEL_NOT_AVAILABLE
+
+
+class OcrConfigurationError(DocumentParserError):
+    """Raised when OCR options cannot be satisfied by the selected engine."""
+
+    code = ErrorCode.OCR_CONFIGURATION_ERROR
+
+
+class OcrExecutionError(DocumentParserError):
+    """Raised by an OCR engine when one page cannot be recognized."""
+
+    code = ErrorCode.OCR_EXECUTION_ERROR

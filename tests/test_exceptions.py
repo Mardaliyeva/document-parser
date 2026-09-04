@@ -10,6 +10,10 @@ from document_parser import (
     DocumentParserError,
     ErrorCode,
     InvalidDocumentError,
+    OcrConfigurationError,
+    OcrDependencyNotAvailableError,
+    OcrExecutionError,
+    OcrModelNotAvailableError,
     SourceNotFoundError,
     SourceReadError,
     SourceTooLargeError,
@@ -29,6 +33,10 @@ from document_parser import (
         (UnsafeDocumentError, ErrorCode.UNSAFE_DOCUMENT),
         (AdapterNotAvailableError, ErrorCode.ADAPTER_NOT_AVAILABLE),
         (AdapterExecutionError, ErrorCode.ADAPTER_EXECUTION_ERROR),
+        (OcrDependencyNotAvailableError, ErrorCode.OCR_DEPENDENCY_NOT_AVAILABLE),
+        (OcrModelNotAvailableError, ErrorCode.OCR_MODEL_NOT_AVAILABLE),
+        (OcrConfigurationError, ErrorCode.OCR_CONFIGURATION_ERROR),
+        (OcrExecutionError, ErrorCode.OCR_EXECUTION_ERROR),
     ],
 )
 def test_exception_code_contract(

@@ -4,16 +4,16 @@
 structure-preserving data suitable for Markdown generation and downstream RAG
 workflows.
 
-> **Status:** pre-alpha. Native DOCX/PDF/XLSX conversion is available. OCR is
-> intentionally deferred to the next phase; scanned PDF pages are detected and
-> returned with `needs_review` status.
+> **Status:** pre-alpha. Native DOCX/PDF/XLSX conversion and opt-in local OCR for
+> scanned or mixed PDFs are available. OCR is disabled by default and never uses
+> a cloud service.
 
 ## Supported input
 
 | Format | Extraction path | Current behavior |
 | --- | --- | --- |
 | DOCX | `python-docx` plus bounded OOXML reads | Headings, spans, links, lists, tables, sections, stories, page breaks, and images |
-| PDF | `pypdf` validation/images plus `pdfplumber` layout | Native text, coordinates, headings, tables, repeated margins, images, and scan detection |
+| PDF | Native extraction plus optional `pypdfium2`/PaddleOCR | Native layout, scan detection, selective page OCR, coordinates, headings, lists, and tables |
 | XLSX | `openpyxl` plus `defusedxml` protection | Sheets, regions, formal tables, formulas, displayed values, merges, visibility, and images |
 
 Legacy Office files, macro-enabled packages, encrypted Office documents, and
@@ -100,6 +100,56 @@ hides repeated headers/footers and hidden sheets by default, and marks PDF pages
 with `<!-- page: N -->`. Metadata, coordinates, raw spreadsheet values, formulas,
 diagnostics, and hidden IR content remain available on `result.document`.
 
+## Optional local OCR
+
+The base install remains OCR-free. Install the OCR extra and then install a
+PaddlePaddle 3.x CPU or GPU runtime appropriate for the target platform, using
+the [official PaddlePaddle installation instructions](https://www.paddleocr.ai/latest/en/version3.x/paddlepaddle_installation.html):
+
+```powershell
+.venv\Scripts\python -m pip install -e ".[ocr]"
+```
+
+Model downloads are a separate, explicit operation. They never happen inside
+`parse()` or `convert()`:
+
+```python
+from document_parser import OcrProfile, prepare_ocr_models
+
+prepare_ocr_models(
+    "./models",
+    profiles=(OcrProfile.STRUCTURED,),
+    languages=("az", "en", "ru"),
+)
+```
+
+After preparation, conversion is local and offline:
+
+```python
+from pathlib import Path
+
+from document_parser import OcrMode, OcrOptions, ParseOptions, convert
+
+options = ParseOptions(
+    ocr=OcrOptions(
+        mode=OcrMode.AUTO,
+        model_store=Path("models"),
+        languages=("az", "en", "ru"),
+    )
+)
+result = convert("mixed-or-scanned.pdf", options=options)
+```
+
+`AUTO` processes only pages marked as scan candidates by native PDF analysis;
+`FORCE` processes every non-empty PDF page; `OFF` is the default. The
+`STRUCTURED` profile restores layout and tables, while `TEXT` is lighter and
+does not promise table structure. OCR shadow/native blocks remain in the IR but
+are excluded from Markdown after a successful OCR replacement. A no-text OCR
+result keeps native content active as a safe fallback.
+
+See [OCR setup and behavior](docs/ocr.md) for model-store security, custom
+engines, limits, diagnostics, and reproducibility details.
+
 ## Development setup
 
 Create a Python 3.11 or 3.12 virtual environment and install the development
@@ -134,7 +184,7 @@ creates a reproducible CycloneDX SBOM.
 1. **Complete:** package, policy, CI, and release scaffold.
 2. **Complete:** Document IR, safe input preparation, detection, and routing.
 3. **Complete:** native DOCX/PDF/XLSX adapters and canonical Markdown.
-4. Add selective local OCR for scanned and mixed PDF pages.
+4. **Complete:** opt-in selective local OCR for scanned and mixed PDF pages.
 5. Add native/OCR reconciliation, structural normalization, and quality scoring.
 6. Add the production CLI, batch conversion, and tagged release workflow.
 

@@ -220,6 +220,8 @@ def _render_container(
 
 
 def _render_block(block: ContentBlock, options: MarkdownOptions, *, heading_offset: int) -> str:
+    if block.attributes.get("active_for_rag") is False:
+        return ""
     story = str(block.attributes.get("story", ""))
     if story in {"header", "footer"} and not options.include_headers_footers:
         return ""

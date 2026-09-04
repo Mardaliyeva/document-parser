@@ -32,6 +32,7 @@ from document_parser.models import (
     FrozenModel,
     SourceInfo,
 )
+from document_parser.ocr import OcrOptions
 
 MEBIBYTE = 1024 * 1024
 READ_CHUNK_SIZE = 64 * 1024
@@ -87,6 +88,7 @@ class ParseOptions(FrozenModel):
     docx: DocxOptions = Field(default_factory=DocxOptions)
     pdf: PdfOptions = Field(default_factory=PdfOptions)
     xlsx: XlsxOptions = Field(default_factory=XlsxOptions)
+    ocr: OcrOptions = Field(default_factory=OcrOptions)
 
     @model_validator(mode="after")
     def validate_spool_threshold(self) -> ParseOptions:

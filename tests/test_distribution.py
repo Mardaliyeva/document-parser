@@ -29,6 +29,14 @@ def test_distribution_metadata_matches_package() -> None:
         "pypdf",
         "python-docx",
     }.issubset(required_names)
+    ocr_requirements = {
+        requirement
+        for requirement in requirements
+        if "extra ==" in requirement and "ocr" in requirement
+    }
+    assert any(requirement.startswith("paddleocr") for requirement in ocr_requirements)
+    assert any(requirement.startswith("platformdirs") for requirement in ocr_requirements)
+    assert any(requirement.startswith("pypdfium2") for requirement in ocr_requirements)
 
 
 def test_typing_marker_is_packaged() -> None:

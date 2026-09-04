@@ -26,6 +26,13 @@ Native adapter
   +-- XLSX: openpyxl + defusedxml
          |
          v
+Selective PDF OCR (OFF / AUTO / FORCE)
+  +-- bounded pypdfium2 page render
+  +-- injected OcrEngine or lazy PaddleOCR
+  +-- TEXT or STRUCTURED semantic results
+  +-- native/OCR provenance and quality diagnostics
+         |
+         v
 AdapterOutput(Document IR 0.1 + asset payloads)
          |
          v
@@ -35,10 +42,11 @@ Canonical Markdown serializer
 ConversionResult(Document + Markdown + assets)
 ```
 
-OCR is not part of this pipeline yet. The PDF adapter marks qualifying pages
-with `pdf.ocr_required`, preserves their page/image provenance, and sets the
-document to `needs_review`. A later OCR stage can consume those page candidates
-without changing the native adapters or Document IR schema.
+OCR is an opt-in post-processing stage for PDF adapter output. The native PDF
+adapter first marks conservative page candidates with `pdf.ocr_required`. In
+`AUTO`, only those pages are rendered; in `FORCE`, every non-empty PDF page is
+rendered; in `OFF`, neither the renderer nor OCR engine is imported. DOCX and
+XLSX never enter this stage.
 
 ## Component boundaries
 
@@ -48,7 +56,7 @@ without changing the native adapters or Document IR schema.
 - **Detection:** recognizes PDF signatures and required DOCX/XLSX ZIP package parts without
   extracting the archive or trusting its extension.
 - **Adapters:** understand one source format and emit `AdapterOutput` with common blocks and assets.
-- **OCR:** processes only pages or embedded images selected by explicit quality rules.
+- **OCR:** renders only selected PDF pages and maps engine-neutral semantic results into IR.
 - **Normalization:** performs fact-preserving structural cleanup on document blocks.
 - **Quality:** records coverage and fidelity signals and chooses a result status.
 - **Serializer:** creates deterministic RAG-friendly Markdown from validated IR.
@@ -74,6 +82,13 @@ one adapter per `DocumentFormat`; duplicate registrations fail immediately.
 `adapters=None` installs the DOCX/PDF/XLSX built-ins, while an explicit empty or
 custom iterable replaces them. Heavy Office and PDF modules remain lazy and are
 not imported with the package root.
+
+`DocumentParser` accepts an injected `OcrEngine`. This keeps the core independent
+of PaddleOCR and allows deterministic unit tests or alternative local engines.
+The built-in engine is constructed only when OCR is enabled and at least one
+page was selected. Renderer and model/configuration failures use typed OCR
+exceptions; an isolated page inference failure preserves the native page and
+sets the document to `partial`.
 
 ## Document IR 0.1
 
@@ -118,6 +133,31 @@ filename. Manifest and payload identity, hash, MIME, and size are validated.
 Input, archive, worksheet, and asset limits raise `UnsafeDocumentError` rather
 than being downgraded to warnings.
 
+## Selective OCR behavior
+
+`OcrPageInput` carries a bounded PNG rendering, PDF point dimensions, rotation,
+and page identity. `OcrPageResult` contains ordered semantic regions, text-line
+coordinates, table grids, confidence, model names, and engine diagnostics.
+These contracts are frozen Pydantic models and contain no Paddle-specific
+objects.
+
+The built-in engine uses local PP-OCRv6 models for Azerbaijani/English text and
+an East-Slavic PP-OCRv5 recognizer for Russian candidates. Script and confidence
+rules reconcile the two recognition results deterministically. The structured
+profile additionally uses PP-StructureV3 layout/table components; formula,
+chart, seal, and cloud/VLM features are disabled.
+
+OCR blocks receive point-space provenance and `extraction_method="ocr"`.
+Replaced native blocks are recursively retained with
+`active_for_rag=False`; the Markdown serializer skips them. If OCR finds no
+text, native content remains active as a fallback. Status precedence is
+`partial`, then `needs_review`, then `complete`.
+
+Model preparation is the only network-enabled OCR operation. It uses HTTPS,
+bounded downloads, safe tar validation, atomic directory replacement, and a
+manifest containing archive and extracted-file hashes. Parsing verifies the
+local model inventory and does not download or update models.
+
 ## Markdown contract
 
 The in-house serializer has no runtime dependency. It emits document/sheet
@@ -131,6 +171,6 @@ final newline.
 
 Version one will support DOCX, PDF, and XLSX conversion only. It will expose a
 Python API and a CLI. Chunking, embeddings, and search-index writes are explicitly
-outside version one. Release `0.3.0a1` includes native adapters and Markdown;
-selective local OCR, native/OCR reconciliation, and quality scoring remain future
-work.
+outside version one. Release `0.4.0a1` includes selective local PDF OCR while
+retaining IR schema `0.1`. Broader native/OCR reconciliation, structural
+normalization, and cross-document quality scoring remain future work.

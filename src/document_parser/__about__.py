@@ -2,6 +2,6 @@
 
 __title__ = "document-parser"
 __description__ = "Local, structure-preserving document conversion for RAG workflows."
-__version__ = "0.3.0a1"
+__version__ = "0.4.0a1"
 __author__ = "Aytan Mardaliyeva"
 __license__ = "Apache-2.0"
