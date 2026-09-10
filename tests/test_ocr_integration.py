@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import os
+import socket
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -36,6 +38,17 @@ _FONT_CANDIDATES = (
     Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
 )
 _SYNTHETIC_SCAN = Path(__file__).parent / "fixtures" / "synthetic" / "scanned-image-only.pdf"
+
+
+@pytest.fixture(autouse=True)
+def forbid_network_during_inference(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prepared-model inference must not fall back to Python network downloads."""
+
+    def denied(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("network access attempted during offline OCR")
+
+    monkeypatch.setattr(socket, "create_connection", denied)
+    monkeypatch.setattr(socket.socket, "connect", denied)
 
 
 def _font(size: int) -> ImageFont.FreeTypeFont:
@@ -119,6 +132,16 @@ def test_real_structured_profile_recovers_a_simple_table() -> None:
     assert tables[0].table is not None
     assert tables[0].table.row_count >= 2
     assert tables[0].table.column_count >= 2
+    assert tables[0].table.row_count == 3
+    assert tables[0].table.column_count == 2
+    assert [cell.text for cell in tables[0].table.cells] == [
+        "Name",
+        "Value",
+        "Alpha",
+        "10",
+        "Beta",
+        "20",
+    ]
 
 
 def test_real_ocr_runs_through_the_full_parser_pipeline() -> None:
@@ -136,3 +159,38 @@ def test_real_ocr_runs_through_the_full_parser_pipeline() -> None:
     assert any("\u0430" <= character <= "\u044f" or character == "\u0451" for character in text)
     assert any(item.code == "ocr.applied" for item in result.document.diagnostics)
     assert not any(item.code == "pdf.ocr_required" for item in result.document.diagnostics)
+
+
+@pytest.mark.parametrize("profile", (OcrProfile.TEXT, OcrProfile.STRUCTURED))
+def test_real_printed_reference_character_error_rate(profile: OcrProfile) -> None:
+    """Measured printed reference, not a language-presence smoke assertion."""
+    lines = (
+        "Azərbaycan sənədi: ə ğ \u0131 ö ü ş ç.",
+        "Document number: TEST-42. Date: 2026-09-08.",
+        "Русский документ. Проверка данных.",
+    )
+    image = Image.new("RGB", (2200, 600), "white")
+    draw = ImageDraw.Draw(image)
+    for index, line in enumerate(lines):
+        draw.text((80, 70 + index * 150), line, fill="black", font=_font(60))
+    options = OcrOptions(mode=OcrMode.FORCE, profile=profile, model_store=_model_store())
+    result = PaddleOcrEngine(options).recognize(_page(image), options)
+    expected = " ".join(lines)
+    actual = " ".join(region.text for region in result.regions)
+    actual = " ".join(unicodedata.normalize("NFC", actual).split())
+    previous = list(range(len(actual) + 1))
+    for index, reference in enumerate(expected, start=1):
+        current = [index]
+        for column, recognized in enumerate(actual, start=1):
+            current.append(
+                min(
+                    current[-1] + 1,
+                    previous[column] + 1,
+                    previous[column - 1] + (reference != recognized),
+                )
+            )
+        previous = current
+    cer = previous[-1] / len(expected)
+    print(f"CER={cer:.6f}; reference={expected!a}; actual={actual!a}")
+    assert cer <= 0.02
+    assert "TEST-42" in actual and "2026-09-08" in actual

@@ -225,7 +225,7 @@ class _TablePage:
         rejected = SimpleNamespace(rows=(1,), columns=(1,), cells=(), bbox=(0, 0, 1, 1))
         return [rejected, _RawTable()]
 
-    def crop(self, _box: tuple[float, float, float, float]) -> _Crop:
+    def filter(self, _predicate: object) -> _Crop:
         return _Crop()
 
 
@@ -247,7 +247,7 @@ def test_pdf_table_and_margin_fallbacks_cover_defensive_paths() -> None:
     assert _image_boxes(_TablePage(), 10, 10) == ((0.0, 0.0, 8.0, 8.0),)
     assert _find_tables(_TablePage(), ParseOptions(pdf=PdfOptions(detect_tables=False))) == ()
     assert _find_tables(_TablePage(short=True), ParseOptions()) == ()
-    assert len(_find_tables(_TablePage(), ParseOptions())) == 1
+    assert len(_find_tables(_TablePage(), ParseOptions())) == 0
 
     context = _PdfContext(ParseOptions(), "sample.pdf")
     assert _pdf_table(_PdfTableData((0, 0, 1, 1), ()), _page_data(), context) is None
@@ -315,12 +315,11 @@ def test_pdf_two_column_lines_follow_column_reading_order() -> None:
         _PdfContext(ParseOptions(), "columns.pdf"),
         ParseOptions(pdf=PdfOptions(infer_headings=False)),
     )
-    assert [block.spans[0].text for block in blocks if isinstance(block, ParagraphBlock)] == [
-        "L1",
-        "L2",
-        "R1",
-        "R2",
-    ]
+    assert [
+        "".join(span.text for span in block.spans)
+        for block in blocks
+        if isinstance(block, ParagraphBlock)
+    ] == ["L1 L2", "R1 R2"]
 
     assert _column_split(lines[:3]) is None
     close_starts = [
@@ -603,7 +602,7 @@ def test_docx_helper_fallbacks_and_unsupported_drawings(monkeypatch: pytest.Monk
     number_properties.extend((level, number_id))
     properties.append(number_properties)
     context = _DocxContext(ParseOptions(), "sample.docx", {(7, 2): (ListKind.ORDERED, 3)})
-    assert _list_spec(paragraph, context) == _ListSpec(ListKind.ORDERED, 2, 3)
+    assert _list_spec(paragraph, context) == _ListSpec(ListKind.ORDERED, 2, 3, 7, "3.")
 
     outline_paragraph = word.add_paragraph("Outline")
     outline = OxmlElement("w:outlineLvl")

@@ -23,6 +23,7 @@ from document_parser import (
     ListItem,
     ListKind,
     MarkdownOptions,
+    MarkdownProfile,
     ParagraphBlock,
     SourceInfo,
     TableBlock,
@@ -149,10 +150,10 @@ def test_markdown_renders_structure_formatting_tables_and_assets() -> None:
 
     markdown = to_markdown(
         document,
-        options=MarkdownOptions(formula_mode=FormulaMode.BOTH),
+        options=MarkdownOptions(profile=MarkdownProfile.FIDELITY, formula_mode=FormulaMode.BOTH),
     )
 
-    assert markdown.startswith("# A \\# title\n")
+    assert markdown.startswith("# A # title\n")
     assert "## Heading" in markdown
     assert "[<u>~~***value***~~</u>](https://example.test/a%20b)" in markdown
     assert "2. Item\n    - Nested" in markdown
@@ -190,6 +191,7 @@ def test_markdown_options_control_tables_formulas_and_hidden_sheets() -> None:
             include_hidden_sheets=True,
             formula_mode=FormulaMode.FORMULA,
             table_mode=TableMode.HTML,
+            profile=MarkdownProfile.FIDELITY,
         ),
     )
     assert "# Sheet: Hidden" in markdown

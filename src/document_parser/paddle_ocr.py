@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import statistics
 import unicodedata
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -232,17 +233,40 @@ def _derive_table(
     boxes = tuple(box for raw in raw_boxes if (box := _box(raw, width, height)) is not None)
     if not boxes:
         return None
-    x_edges = sorted({round(value, 2) for box in boxes for value in (box.x, box.x + box.width)})
-    y_edges = sorted({round(value, 2) for box in boxes for value in (box.y, box.y + box.height)})
+
+    def edges(values: Iterable[float], tolerance: float) -> list[float]:
+        groups: list[list[float]] = []
+        for value in sorted(values):
+            if groups and value - groups[-1][0] <= tolerance:
+                groups[-1].append(value)
+            else:
+                groups.append([value])
+        return [statistics.fmean(group) for group in groups]
+
+    # Detectors return approximate boxes, not an exact vector grid. Cluster
+    # neighboring boundaries relative to the smallest detected cell so that
+    # small rows/columns cannot disappear behind a page-wide tolerance.
+    x_edges = edges(
+        (v for b in boxes for v in (b.x, b.x + b.width)),
+        max(1.0, min(b.width for b in boxes) * 0.1),
+    )
+    y_edges = edges(
+        (v for b in boxes for v in (b.y, b.y + b.height)),
+        max(1.0, min(b.height for b in boxes) * 0.1),
+    )
     if len(x_edges) < 2 or len(y_edges) < 2:
         return None
     cells: list[OcrTableCell] = []
     occupied: set[tuple[int, int]] = set()
     for box in sorted(boxes, key=lambda item: (item.y, item.x)):
-        column = x_edges.index(round(box.x, 2))
-        row = y_edges.index(round(box.y, 2))
-        column_span = x_edges.index(round(box.x + box.width, 2)) - column
-        row_span = y_edges.index(round(box.y + box.height, 2)) - row
+        column = min(range(len(x_edges)), key=lambda i: abs(x_edges[i] - box.x))
+        row = min(range(len(y_edges)), key=lambda i: abs(y_edges[i] - box.y))
+        column_span = (
+            min(range(len(x_edges)), key=lambda i: abs(x_edges[i] - box.x - box.width)) - column
+        )
+        row_span = (
+            min(range(len(y_edges)), key=lambda i: abs(y_edges[i] - box.y - box.height)) - row
+        )
         covered = {
             (covered_row, covered_column)
             for covered_row in range(row, row + max(1, row_span))
@@ -304,6 +328,17 @@ class PaddleOcrEngine:
                 "PaddleOCR requires paddleocr and a PaddlePaddle inference runtime",
                 source_name=source_name,
             ) from exc
+        except RuntimeError as exc:
+            # PaddleX wraps its optional-extra DependencyError in RuntimeError.
+            if "dependency" in str(exc).lower() or isinstance(exc.__cause__, ImportError):
+                raise OcrDependencyNotAvailableError(
+                    "STRUCTURED OCR requires document-parser[ocr] with PaddleOCR doc-parser extras",
+                    source_name=source_name,
+                ) from exc
+            raise OcrConfigurationError(
+                "PaddleOCR could not initialize the configured local pipeline",
+                source_name=source_name,
+            ) from exc
 
     def _path(self, name: str) -> str:
         return str(self._store / name)
@@ -342,6 +377,10 @@ class PaddleOcrEngine:
                 **self._common(size="medium"),
                 "doc_unwarping_model_dir": self._path("UVDoc"),
                 "layout_detection_model_dir": self._path("PP-DocLayoutV3"),
+                "layout_detection_model_name": "PP-DocLayoutV3",
+                "use_region_detection": False,
+                "table_orientation_classify_model_name": "PP-LCNet_x1_0_doc_ori",
+                "table_orientation_classify_model_dir": self._path("PP-LCNet_x1_0_doc_ori"),
                 "use_table_recognition": True,
                 "use_formula_recognition": False,
                 "use_chart_recognition": False,
@@ -349,6 +388,7 @@ class PaddleOcrEngine:
                 "table_classification_model_dir": self._path("PP-LCNet_x1_0_table_cls"),
                 "wired_table_structure_recognition_model_dir": self._path("SLANeXt_wired"),
                 "wireless_table_structure_recognition_model_dir": self._path("SLANeXt_wireless"),
+                "wireless_table_structure_recognition_model_name": "SLANeXt_wireless",
                 "wired_table_cells_detection_model_dir": self._path(
                     "RT-DETR-L_wired_table_cell_det"
                 ),

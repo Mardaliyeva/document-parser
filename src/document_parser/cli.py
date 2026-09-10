@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from document_parser.__about__ import __version__
 from document_parser.batch import BatchItemStatus, BatchOptions, convert_batch
 from document_parser.exceptions import DocumentParserError, UnsafeDocumentError
+from document_parser.markdown import MarkdownOptions, MarkdownProfile
 from document_parser.ocr import OcrMode, OcrOptions, OcrProfile
 from document_parser.ocr_models import prepare_ocr_models, verify_ocr_models
 from document_parser.parser import DocumentParser
@@ -26,6 +27,16 @@ def _positive_jobs(value: str) -> int:
     if not 1 <= jobs <= 32:
         raise argparse.ArgumentTypeError("jobs must be between 1 and 32")
     return jobs
+
+
+def _port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("port must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError("port must be between 1 and 65535")
+    return port
 
 
 def _csv(value: str) -> tuple[str, ...]:
@@ -57,6 +68,7 @@ def _parser() -> argparse.ArgumentParser:
     convert.add_argument("--overwrite", action="store_true")
     convert.add_argument("--fail-fast", action="store_true")
     convert.add_argument("--fail-on-review", action="store_true")
+    convert.add_argument("--profile", choices=tuple(MarkdownProfile), default=MarkdownProfile.CLEAN)
     _ocr_arguments(convert)
 
     inspect = subparsers.add_parser("inspect", help="inspect one source without parsing")
@@ -74,6 +86,11 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--languages", type=_csv, default=("az", "en", "ru"))
     verify = model_commands.add_parser("verify", help="verify an offline OCR model store")
     verify.add_argument("--target", type=Path)
+
+    ui = subparsers.add_parser("ui", help="launch the local document inspection interface")
+    ui.add_argument("--model-store", type=Path)
+    ui.add_argument("--port", type=_port)
+    ui.add_argument("--no-browser", action="store_true")
 
     subparsers.add_parser("version", help="print the installed package version")
     return parser
@@ -95,6 +112,7 @@ def _run_convert(arguments: argparse.Namespace) -> int:
         arguments.inputs,
         arguments.output,
         parse_options=_parse_options(arguments),
+        markdown_options=MarkdownOptions(profile=MarkdownProfile(arguments.profile)),
         batch_options=BatchOptions(
             recursive=arguments.recursive,
             jobs=arguments.jobs,
@@ -142,6 +160,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if arguments.command == "models":
             return _run_models(arguments)
+        if arguments.command == "ui":
+            from document_parser.ui import launch_ui
+
+            launch_ui(
+                model_store=arguments.model_store,
+                port=arguments.port,
+                inbrowser=not arguments.no_browser,
+            )
+            return 0
         return _run_convert(arguments)
     except UnsafeDocumentError as exc:
         print(str(exc), file=sys.stderr)

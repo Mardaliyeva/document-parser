@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Simplify the local UI to upload, automatic conversion and Markdown download.
+- Use AUTO/STRUCTURED AZ+EN+RU OCR and CLEAN output in the UI only; preserve
+  Python/CLI defaults and advanced options.
+- Move diagnostics, model verification, IR and asset downloads into collapsed
+  technical details; document routing, dependencies and supported-format limits.
+
+## [0.8.0a1] — 2026-09-08
+
+### Changed
+
+- Default to clean Markdown; add explicit fidelity and record-table presentation.
+- Preserve whitespace across formatting runs and original normalization provenance.
+- Resolve DOCX numbering identities, restarts and numbered heading semantics.
+- Traverse DOCX content controls and cached fields instead of silently omitting
+  stored table-of-contents entries.
+- Extract PDF words independently of font subsets, preserve inline styles, group
+  paragraphs/lists, assign table glyphs by center, and cluster grid coordinates.
+- Identify suspicious native text on scanned pages for selective local OCR.
+- Preserve the first repeated PDF header table and hide subsequent duplicates.
+- Replace implicit perfect native confidence with conservative extraction quality;
+  exclude unresolved OCR pages from successful coverage.
+- Add CLI/UI Markdown profiles and an anonymous, local-only ZIP audit tool.
+- Include PaddleOCR doc-parser extras for STRUCTURED OCR and map wrapped
+  dependency initialization failures to a typed OCR dependency error.
+- Bind structured model names and directories explicitly, disable unprepared
+  region detection, and cluster approximate OCR cell boundaries.
+
+### Acceptance notes
+
+- Real printed-reference tests enforce a 2% CER target; the TEXT profile has a
+  known failing reference while STRUCTURED passes that same reference. This is
+  not a claim of corpus-wide OCR accuracy.
+- The expanded OCR dependency tree requires policy review; consult
+  `docs/dependency-policy.md` before distributing the optional extra.
+
+### Compatibility
+
+- IR remains 0.2. OCR remains optional/OFF. No downstream integration is updated.
+- Raw HTML table/source-comment options require the fidelity profile.
+
+## [0.7.0a1] - 2026-09-04
+
+### Added
+
+- Optional Apache-2.0 Gradio 6.x extra and Azerbaijani single-document test interface.
+- Localhost-only `document-parser ui` command with model-store, port, and browser controls.
+- Markdown, IR, quality, diagnostic, asset, gallery, and download result views.
+- Short-lived per-session artifact storage and deterministic full-bundle ZIP generation.
+- Typed `UiDependencyNotAvailableError` with stable `ui_dependency_not_available` code.
+- UI-specific cross-platform smoke tests, license report, and CycloneDX SBOM checks.
+
+### Changed
+
+- Bumped the package version to `0.7.0a1`; Document IR remains schema `0.2`.
+- Extended the full test suite to cover the optional local UI at 100% branch coverage.
+
 ## [0.6.0a1] - 2026-09-04
 
 ### Added
@@ -105,7 +161,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Apache 2.0 licensing and contribution policies.
 - Cross-platform test, lint, type-check, build, license, and SBOM checks.
 
-[Unreleased]: https://github.com/Mardaliyeva/document-parser/compare/v0.6.0-alpha.1...HEAD
+[Unreleased]: https://github.com/Mardaliyeva/document-parser/compare/v0.7.0-alpha.1...HEAD
+[0.7.0a1]: https://github.com/Mardaliyeva/document-parser/compare/v0.6.0-alpha.1...v0.7.0-alpha.1
 [0.6.0a1]: https://github.com/Mardaliyeva/document-parser/compare/v0.5.0-alpha.1...v0.6.0-alpha.1
 [0.5.0a1]: https://github.com/Mardaliyeva/document-parser/compare/v0.4.0-alpha.1...v0.5.0-alpha.1
 [0.4.0a1]: https://github.com/Mardaliyeva/document-parser/compare/v0.3.0-alpha.1...v0.4.0-alpha.1

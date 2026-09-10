@@ -134,7 +134,7 @@ def test_text_cleanup_merges_spans_preserves_original_and_hides_empty() -> None:
     result = normalize_document(document_with(original, empty))
     first, second = result.blocks
     assert isinstance(first, ParagraphBlock)
-    assert first.spans == (TextSpan(text="ÄB\n", bold=True),)
+    assert first.spans == (TextSpan(text="Ä B", bold=True),)
     assert "normalization_original_spans" in first.attributes
     assert second.attributes["active_for_rag"] is False
     assert second.attributes["normalization_decision"] == "empty_or_decorative"
@@ -356,7 +356,7 @@ def test_quality_handles_sheet_list_table_and_info_diagnostics() -> None:
     assert report.units[0].scope is QualityScope.SHEET
     assert report.units[0].identifier == "Data"
     assert report.units[0].text_characters == 14
-    assert report.confidence_score == 0.6071
+    assert report.confidence_score == 0.5857
     assert report.fidelity_score == 1
     assert report.flags == ("quality.low_confidence",)
     completed = apply_quality(document, QualityOptions())

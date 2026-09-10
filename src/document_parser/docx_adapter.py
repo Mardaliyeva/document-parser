@@ -50,6 +50,8 @@ class _ListSpec:
     kind: ListKind
     level: int
     start: int
+    number_id: int = 0
+    label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +63,9 @@ class _ListEntry:
 class _DocxContext:
     __slots__ = (
         "assets",
+        "counters",
         "diagnostics",
+        "number_patterns",
         "numbering",
         "options",
         "partial",
@@ -80,6 +84,8 @@ class _DocxContext:
         self.numbering = numbering
         self.partial = False
         self.sequence = 0
+        self.counters: dict[tuple[int, int], int] = {}
+        self.number_patterns: dict[tuple[int, int], tuple[str, str, int | None]] = {}
 
     def next_id(self, kind: str) -> str:
         self.sequence += 1
@@ -113,6 +119,7 @@ class DocxAdapter:
             ) from exc
 
         context = _DocxContext(options, source.info.name, _numbering_map(word))
+        context.number_patterns = _number_patterns(word)
         section_items = _partition_sections(word)
         sections: list[ContentBlock] = []
         seen_stories: set[str] = set()
@@ -185,12 +192,36 @@ def _metadata(word: WordDocument) -> DocumentMetadata:
     )
 
 
+def _inner_items(parent: Any) -> tuple[object, ...]:
+    """Traverse visible block wrappers omitted by python-docx's public iterator."""
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    items: list[object] = []
+
+    def visit(element: Any) -> None:
+        for child in element:
+            if child.tag == qn("w:p"):
+                items.append(Paragraph(child, parent))
+            elif child.tag == qn("w:tbl"):
+                items.append(Table(child, parent))
+            elif child.tag in {
+                qn(tag)
+                for tag in ("w:body", "w:sdt", "w:sdtContent", "w:ins", "w:moveTo", "w:customXml")
+            }:
+                visit(child)
+
+    visit(parent._element)
+    return tuple(items)
+
+
 def _partition_sections(word: WordDocument) -> tuple[tuple[object, ...], ...]:
     from docx.text.paragraph import Paragraph
 
     grouped: list[tuple[object, ...]] = []
     current: list[object] = []
-    for item in word.iter_inner_content():
+    for item in _inner_items(word):
         current.append(item)
         if (
             isinstance(item, Paragraph)
@@ -209,7 +240,7 @@ def _numbering_map(word: WordDocument) -> dict[tuple[int, int], tuple[ListKind, 
 
     try:
         root = word.part.numbering_part.element
-    except (AttributeError, KeyError):
+    except (AttributeError, KeyError, NotImplementedError):
         return {}
     abstracts: dict[int, dict[int, tuple[ListKind, int]]] = {}
     for abstract in root.findall(qn("w:abstractNum")):
@@ -236,20 +267,132 @@ def _numbering_map(word: WordDocument) -> dict[tuple[int, int], tuple[ListKind, 
         abstract_id = int(abstract_element.get(qn("w:val")))
         for level, spec in abstracts.get(abstract_id, {}).items():
             result[(number_id, level)] = spec
+        for override in number.findall(qn("w:lvlOverride")):
+            level = int(override.get(qn("w:ilvl")))
+            start_override = override.find(qn("w:startOverride"))
+            nested = override.find(qn("w:lvl"))
+            kind, start = result.get((number_id, level), (ListKind.ORDERED, 1))
+            if nested is not None:
+                fmt = nested.find(qn("w:numFmt"))
+                initial = nested.find(qn("w:start"))
+                if fmt is not None:
+                    kind = (
+                        ListKind.UNORDERED
+                        if fmt.get(qn("w:val")) in {"bullet", "none"}
+                        else ListKind.ORDERED
+                    )
+                if initial is not None:
+                    start = int(initial.get(qn("w:val")))
+            if start_override is not None:
+                start = int(start_override.get(qn("w:val")))
+            result[(number_id, level)] = kind, max(1, start)
     return result
+
+
+def _number_patterns(word: WordDocument) -> dict[tuple[int, int], tuple[str, str, int | None]]:
+    from docx.oxml.ns import qn
+
+    try:
+        root = word.part.numbering_part.element
+    except (KeyError, NotImplementedError):
+        return {}
+    abstracts = {a.get(qn("w:abstractNumId")): a for a in root.findall(qn("w:abstractNum"))}
+    result: dict[tuple[int, int], tuple[str, str, int | None]] = {}
+    for number in root.findall(qn("w:num")):
+        ref = number.find(qn("w:abstractNumId"))
+        abstract = abstracts.get(ref.get(qn("w:val"))) if ref is not None else None
+        if abstract is None:
+            continue
+        levels = {int(level.get(qn("w:ilvl"))): level for level in abstract.findall(qn("w:lvl"))}
+        for override in number.findall(qn("w:lvlOverride")):
+            nested = override.find(qn("w:lvl"))
+            if nested is not None:
+                levels[int(override.get(qn("w:ilvl")))] = nested
+        for index, level in levels.items():
+            text = level.find(qn("w:lvlText"))
+            fmt = level.find(qn("w:numFmt"))
+            restart = level.find(qn("w:lvlRestart"))
+            result[(int(number.get(qn("w:numId"))), index)] = (
+                text.get(qn("w:val")) if text is not None else f"%{index + 1}.",
+                fmt.get(qn("w:val")) if fmt is not None else "decimal",
+                int(restart.get(qn("w:val"))) if restart is not None else None,
+            )
+    return result
+
+
+def _number_label(value: int, fmt: str) -> str:
+    if fmt in {"lowerLetter", "upperLetter"}:
+        label = ""
+        while value:
+            value, digit = divmod(value - 1, 26)
+            label = chr(65 + digit) + label
+        return label.lower() if fmt == "lowerLetter" else label
+    if fmt in {"lowerRoman", "upperRoman"} and value <= 9999:
+        label = ""
+        for number, token in (
+            (1000, "M"),
+            (900, "CM"),
+            (500, "D"),
+            (400, "CD"),
+            (100, "C"),
+            (90, "XC"),
+            (50, "L"),
+            (40, "XL"),
+            (10, "X"),
+            (9, "IX"),
+            (5, "V"),
+            (4, "IV"),
+            (1, "I"),
+        ):
+            count, value = divmod(value, number)
+            label += token * count
+        return label.lower() if fmt == "lowerRoman" else label
+    return str(value)
 
 
 def _list_spec(paragraph: Paragraph, context: _DocxContext) -> _ListSpec | None:
     properties = paragraph._p.pPr
     number_properties = cast(Any, properties.numPr if properties is not None else None)
+    style = paragraph.style
+    visited: set[str] = set()
+    while number_properties is None and style is not None and style.style_id not in visited:
+        visited.add(style.style_id)
+        style_properties = style.element.pPr
+        number_properties = style_properties.numPr if style_properties is not None else None
+        style = style.base_style
     if number_properties is not None and number_properties.numId is not None:
         number_id = int(number_properties.numId.val)
+        if number_id == 0:
+            return None
         level = int(number_properties.ilvl.val) if number_properties.ilvl is not None else 0
         kind, start = context.numbering.get((number_id, level), (ListKind.UNORDERED, 1))
-        return _ListSpec(kind=kind, level=level, start=start)
+        key = (number_id, level)
+        current = context.counters.get(key, start - 1) + 1
+        context.counters[key] = current
+        for child in tuple(context.counters):
+            restart = context.number_patterns.get(child, ("", "decimal", None))[2]
+            if (
+                child[0] == number_id
+                and child[1] > level
+                and restart != 0
+                and (restart is None or restart - 1 == level)
+            ):
+                del context.counters[child]
+        pattern = context.number_patterns.get(key, (f"%{level + 1}.", "decimal", None))[0]
+
+        def substitute(match: re.Match[str]) -> str:
+            referenced = (number_id, int(match[1]) - 1)
+            value = context.counters.get(
+                referenced, context.numbering.get(referenced, (kind, 1))[1]
+            )
+            fmt = context.number_patterns.get(referenced, ("", "decimal", None))[1]
+            return _number_label(value, fmt)
+
+        label = re.sub(r"%([1-9])", substitute, pattern) if kind is ListKind.ORDERED else ""
+        return _ListSpec(kind=kind, level=level, start=current, number_id=number_id, label=label)
 
     style_name = (paragraph.style.name or "").lower() if paragraph.style else ""
-    if style_name.startswith("list"):
+    if style_name.startswith(("list bullet", "list number")):
         kind = ListKind.ORDERED if "number" in style_name else ListKind.UNORDERED
         match = re.search(r"(\d+)$", style_name)
         level = max(0, int(match.group(1)) - 1) if match else 0
@@ -259,6 +402,8 @@ def _list_spec(paragraph: Paragraph, context: _DocxContext) -> _ListSpec | None:
 
 def _heading_level(paragraph: Paragraph) -> int | None:
     style_name = paragraph.style.name if paragraph.style else ""
+    if style_name.casefold() == "title":
+        return 1
     match = re.search(r"heading\s*([1-9])", style_name, re.IGNORECASE)
     if match:
         return min(6, int(match.group(1)))
@@ -401,7 +546,17 @@ def _paragraph_blocks(paragraph: Paragraph, context: _DocxContext) -> tuple[Cont
                 for nested in child:
                     if nested.tag == qn("w:r"):
                         consume_run(nested, href)
-            elif child.tag == qn("w:ins"):
+            elif child.tag in {
+                qn(tag)
+                for tag in (
+                    "w:ins",
+                    "w:sdt",
+                    "w:sdtContent",
+                    "w:fldSimple",
+                    "w:smartTag",
+                    "w:moveTo",
+                )
+            }:
                 consume(child)
             elif child.tag == qn("w:del"):
                 continue
@@ -429,7 +584,7 @@ def _table_block(table: Table, context: _DocxContext) -> TableBlock:
         origin_column = min(column for _, column in cell_positions)
         row_span = max(row for row, _ in cell_positions) - origin_row + 1
         column_span = max(column for _, column in cell_positions) - origin_column + 1
-        cell_blocks = _story_blocks(tuple(cell.iter_inner_content()), context)
+        cell_blocks = _story_blocks(_inner_items(cell), context)
         displayed = normalize_text(cell.text).strip()
         cells_by_row[origin_row].append(
             TableCell(
@@ -464,9 +619,13 @@ def _build_lists(entries: tuple[_ListEntry, ...], context: _DocxContext) -> tupl
     def consume(index: int, level: int, kind: ListKind) -> tuple[ListBlock, int]:
         items: list[ListItem] = []
         start = entries[index].spec.start
+        number_id = entries[index].spec.number_id
         while index < len(entries):
             entry = entries[index]
-            if entry.spec.level < level or entry.spec.kind is not kind:
+            if entry.spec.level < level or (
+                entry.spec.level == level
+                and (entry.spec.kind is not kind or entry.spec.number_id != number_id)
+            ):
                 break
             if entry.spec.level > level:
                 nested, index = consume(index, entry.spec.level, entry.spec.kind)
@@ -483,7 +642,7 @@ def _build_lists(entries: tuple[_ListEntry, ...], context: _DocxContext) -> tupl
                 start=start if kind is ListKind.ORDERED else None,
                 items=tuple(items),
                 source=context.location(),
-                attributes={"level": level},
+                attributes={"level": level, "number_id": number_id},
             ),
             index,
         )
@@ -513,7 +672,30 @@ def _story_blocks(items: tuple[object, ...], context: _DocxContext) -> tuple[Con
         if isinstance(item, Paragraph):
             paragraph_blocks = _paragraph_blocks(item, context)
             spec = _list_spec(item, context)
+            if spec is not None and any(
+                isinstance(block, HeadingBlock) for block in paragraph_blocks
+            ):
+                flush_lists()
+                for block in paragraph_blocks:
+                    if isinstance(block, HeadingBlock) and spec.label:
+                        block = block.model_copy(
+                            update={
+                                "spans": (TextSpan(text=spec.label + " "), *block.spans),
+                                "attributes": {**block.attributes, "numbering_label": spec.label},
+                            }
+                        )
+                    blocks.append(block)
+                continue
             if spec is not None and paragraph_blocks:
+                if spec.label:
+                    paragraph_blocks = tuple(
+                        block.model_copy(
+                            update={
+                                "attributes": {**block.attributes, "numbering_label": spec.label}
+                            }
+                        )
+                        for block in paragraph_blocks
+                    )
                 pending_lists.append(_ListEntry(spec=spec, blocks=paragraph_blocks))
             else:
                 flush_lists()
@@ -547,7 +729,7 @@ def _section_stories(
         if part_name in seen:
             continue
         seen.add(part_name)
-        blocks = _story_blocks(tuple(story.iter_inner_content()), context)
+        blocks = _story_blocks(_inner_items(story), context)
         if not blocks:
             continue
         block_id = context.next_id(story_name)

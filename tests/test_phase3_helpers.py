@@ -23,6 +23,7 @@ from document_parser import (
     ListItem,
     ListKind,
     MarkdownOptions,
+    MarkdownProfile,
     PageBreakBlock,
     ParagraphBlock,
     ParseOptions,
@@ -159,7 +160,7 @@ def test_markdown_covers_code_fences_container_modes_and_page_breaks() -> None:
         header, page_without_location, page_with_location, titled_section, untitled_sheet
     )
 
-    markdown = to_markdown(document)
+    markdown = to_markdown(document, options=MarkdownOptions(profile=MarkdownProfile.FIDELITY))
     assert "Header" not in markdown and "Repeated" not in markdown
     assert "``a`b``" in markdown
     assert "<!-- page: 2 -->" in markdown
@@ -211,7 +212,10 @@ def test_markdown_covers_nonparagraph_list_items_figures_and_empty_output() -> N
         FigureBlock(block_id="caption", asset_id=ref.asset_id, caption=(TextSpan(text="Cap"),)),
         FigureBlock(block_id="fallback", asset_id=ref.asset_id),
     )
-    markdown = to_markdown(make_document(block, *figures, assets=(ref,)))
+    markdown = to_markdown(
+        make_document(block, *figures, assets=(ref,)),
+        options=MarkdownOptions(profile=MarkdownProfile.FIDELITY),
+    )
     assert "-\n    ## H" in markdown
     assert "    | Cell |" in markdown
     assert "![Cap]" in markdown and "![image]" in markdown
@@ -231,7 +235,8 @@ def test_markdown_forced_gfm_and_unknown_block_guard() -> None:
         ),
     )
     assert "| Merged |" in to_markdown(
-        make_document(table), options=MarkdownOptions(table_mode=TableMode.GFM)
+        make_document(table),
+        options=MarkdownOptions(profile=MarkdownProfile.FIDELITY, table_mode=TableMode.GFM),
     )
 
     class Unknown:

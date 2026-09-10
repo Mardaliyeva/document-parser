@@ -24,10 +24,17 @@ from document_parser.exceptions import (
     SourceNotFoundError,
     SourceReadError,
     SourceTooLargeError,
+    UiDependencyNotAvailableError,
     UnsafeDocumentError,
     UnsupportedFormatError,
 )
-from document_parser.markdown import FormulaMode, MarkdownOptions, TableMode, to_markdown
+from document_parser.markdown import (
+    FormulaMode,
+    MarkdownOptions,
+    MarkdownProfile,
+    TableMode,
+    to_markdown,
+)
 from document_parser.models import (
     SCHEMA_VERSION,
     AssetRef,
@@ -133,6 +140,7 @@ __all__ = [
     "ListItem",
     "ListKind",
     "MarkdownOptions",
+    "MarkdownProfile",
     "NormalizationOptions",
     "OcrConfigurationError",
     "OcrDependencyNotAvailableError",
@@ -174,6 +182,7 @@ __all__ = [
     "TableMode",
     "TableRow",
     "TextSpan",
+    "UiDependencyNotAvailableError",
     "UnsafeDocumentError",
     "UnsupportedFormatError",
     "XlsxOptions",

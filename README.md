@@ -1,5 +1,12 @@
 # document-parser
 
+> **0.8.0a1 — clean Markdown is now the default.** HTML tables, underline tags,
+> page comments and image links are omitted from clean output. Complex tables
+> retain their relationships as row records. Use `MarkdownOptions(profile=MarkdownProfile.FIDELITY)`
+> or CLI `--profile fidelity` for legacy presentation. OCR remains optional and
+> OFF by default in Python/CLI; the simple UI uses AUTO. See [clean Markdown and quality](docs/clean-markdown.md) for
+> migration, local corpus auditing and uncertainty handling.
+
 [![CI](https://github.com/Mardaliyeva/document-parser/actions/workflows/ci.yml/badge.svg)](https://github.com/Mardaliyeva/document-parser/actions/workflows/ci.yml)
 ![Python 3.11–3.12](https://img.shields.io/badge/python-3.11%E2%80%933.12-blue)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
@@ -10,8 +17,9 @@ workflows.
 
 > **Status:** pre-alpha. Native DOCX/PDF/XLSX conversion, opt-in local OCR,
 > source reconciliation, conservative normalization, quality reporting, and a
-> production-oriented batch CLI are available. OCR is disabled by default and
-> never uses a cloud service. The current development package is `0.6.0a1`
+> production-oriented batch CLI and local inspection UI are available. OCR is
+> disabled by default in Python/CLI, automatic in the UI, and never uses a cloud service. The current development
+> package is `0.8.0a1`
 > with Document IR schema `0.2`.
 
 ## Contents
@@ -28,6 +36,7 @@ workflows.
 - [Configuration reference](#configuration-reference)
 - [Optional local OCR](#optional-local-ocr)
 - [Document IR, Markdown, and quality](#document-ir-markdown-and-quality)
+- [Local document inspection UI](#local-document-inspection-ui)
 - [Command-line and batch conversion](#command-line-and-batch-conversion)
 - [Errors and diagnostics](#errors-and-diagnostics)
 - [Security model](#security-model)
@@ -35,6 +44,37 @@ workflows.
 - [Development and testing](#development-and-testing)
 
 ## Why document-parser?
+
+### Automatic conversion and technology map
+
+The local UI is **upload → convert → download Markdown**. "Universal" means
+one pipeline for the supported formats, not every possible file extension.
+
+| Input/layer | Technology | What happens |
+| --- | --- | --- |
+| DOCX | python-docx + lxml | Read OOXML paragraphs, runs, headings, numbering, tables and image relationships in document order. |
+| Native PDF | pypdf + pdfplumber | Inspect pages/metadata and extract positioned characters, words and table geometry. |
+| Scanned/mixed PDF | pypdfium2 + PaddleOCR/PaddlePaddle | Render selected pages locally; recognize text and layout through PP-Structure and language recognizers. |
+| XLSX | openpyxl + defusedxml | Read sheets, cell values, merges and cached formula results; never execute formulas. |
+| Document IR | Pydantic v2 | Validate immutable structured blocks, locations, assets and diagnostics. |
+| Markdown | Project serializer | Render clean headings/lists/GFM tables; complex tables become contextual row records. |
+| UI / CLI | Gradio / argparse | Local single-file browser uploads or scriptable batch conversion. |
+
+Extraction is followed by native/OCR reconciliation, conservative normalization
+and heuristic quality scoring. Native and OCR alternatives retain provenance;
+only active content is rendered. A high score is **not** a guarantee of accuracy.
+
+PDF routing examines each page: healthy native text is extracted directly,
+scan candidates are OCRed, and blank pages are skipped. Presence of an image
+alone is not sufficient: decorative logos do not imply OCR. Damaged text-layer
+detection is heuristic and can miss difficult pages. The methods are unchanged
+by the simplified UI.
+
+Standalone PNG/JPEG, PPTX, legacy DOC/XLS, API FAQ JSON and encrypted documents
+are not supported inputs. OCR of images embedded in DOCX/XLSX is not implemented.
+Complex scan tables, handwriting and low-quality scans may require manual review.
+The library does not translate, chunk, embed or store documents in a vector DB.
+OCR model preparation needs an explicit download; parsing itself is local.
 
 Document extraction is more than calling a text-extraction function. A useful
 RAG input must preserve headings, lists, tables, worksheets, page locations,
@@ -102,6 +142,18 @@ PaddlePaddle uses platform-specific CPU/GPU packages, so follow its
 [official installation guide](https://www.paddleocr.ai/latest/en/version3.x/paddlepaddle_installation.html).
 Installing `document-parser[ocr]` installs PaddleOCR and PDF rendering support,
 but intentionally does not select a PaddlePaddle runtime on your behalf.
+
+For the local Azerbaijani test interface:
+
+```bash
+python -m pip install -e ".[ui]"
+```
+
+Install both optional feature sets when the interface must process scans:
+
+```bash
+python -m pip install -e ".[ui,ocr]"
+```
 
 ## Supported inputs
 
@@ -190,7 +242,8 @@ converted/
 - A lossless JSON intermediate representation as the source of truth.
 - Deterministic outputs for fixed input, options, and model versions.
 - Selective OCR instead of OCRing every page or embedded image.
-- Permissively licensed dependencies and model assets only.
+- Permissive base dependencies; optional OCR/UI trees require the separately
+  documented dependency-policy review and exceptions.
 
 ## Format behavior
 
@@ -289,7 +342,7 @@ document = parse(pdf_bytes, filename="report.pdf")
 markdown = to_markdown(
     document,
     options=MarkdownOptions(
-        include_source_markers=True,
+        include_source_markers=False,
         formula_mode=FormulaMode.BOTH,
         table_mode=TableMode.AUTO,
     ),
@@ -387,9 +440,9 @@ options = ParseOptions(
 ```
 
 The dependency-free Markdown serializer preserves hierarchy, emits simple
-tables as GFM and merge-aware tables as HTML, uses content-addressed asset links,
-hides repeated headers/footers and hidden sheets by default, and marks PDF pages
-with `<!-- page: N -->`. Metadata, coordinates, raw spreadsheet values, formulas,
+tables as GFM and complex tables as contextual records in the default CLEAN
+profile. FIDELITY restores HTML tables, image links, and page comments.
+Repeated margins and hidden sheets are hidden by default. Metadata, coordinates, raw spreadsheet values, formulas,
 diagnostics, and hidden IR content remain available on `result.document`.
 
 ### Python batch conversion
@@ -561,16 +614,17 @@ overall = 0.35 × coverage
 
 | `MarkdownOptions` field | Default | Effect |
 | --- | ---: | --- |
+| `profile` | `clean` | `clean` or explicit legacy `fidelity` presentation |
 | `include_document_title` | `True` | Emit metadata title |
-| `include_source_markers` | `True` | Emit PDF page markers |
+| `include_source_markers` | `None` | Disabled in clean; enabled in fidelity unless set to `False` |
 | `include_headers_footers` | `False` | Include Word/PDF repeated margins |
 | `include_hidden_sheets` | `False` | Serialize hidden worksheets |
 | `formula_mode` | `displayed` | `displayed`, `formula`, or `both` |
-| `table_mode` | `auto` | `auto`, `gfm`, or `html` |
+| `table_mode` | `auto` | `auto`, `gfm`, `records`, or fidelity-only `html` |
 | `asset_prefix` | `assets/` | Prefix used by Markdown image links |
 
-In `auto` mode, simple rectangular tables use GFM pipe syntax; merged or
-nested tables use HTML so row/column spans are not lost.
+In clean `auto` mode, simple header-bearing tables use GFM; merged, multiline,
+or nested tables use contextual records. Fidelity uses HTML for complex tables.
 
 ## Optional local OCR
 
@@ -731,12 +785,12 @@ failures raise typed exceptions instead of returning a synthetic failed
 The serializer:
 
 - emits LF line endings and exactly one final newline;
-- creates PDF page markers such as `<!-- page: 2 -->`;
+- creates PDF page markers only in the fidelity profile;
 - maps sheet containers to `## Sheet: <name>`;
 - preserves nested lists with deterministic indentation;
-- uses GFM or merge-aware HTML tables;
+- uses GFM or contextual records (merge-aware HTML in fidelity);
 - escapes Markdown control characters and cell newlines;
-- links assets through content-addressed filenames;
+- links assets through content-addressed filenames only in fidelity;
 - excludes `active_for_rag=False` blocks;
 - hides repeated headers/footers and hidden sheets by default;
 - does not inject YAML front matter or quality metadata into the text.
@@ -744,6 +798,37 @@ The serializer:
 Metadata, raw formulas, coordinates, inactive OCR/native alternatives, and
 diagnostics remain available in `document.json` even when omitted from
 Markdown.
+
+## Local document inspection UI
+
+Upload one DOCX, PDF or XLSX, press **Markdown-a çevir**, then **Markdown-u endir**.
+There are no format, OCR, language or Markdown selectors. Technical details
+(IR, raw Markdown, diagnostics, assets, model status and ZIP/JSON downloads)
+remain available under the collapsed **Texniki məlumatlar** section.
+
+```powershell
+# From the cloned repository; use Python 3.11 or 3.12
+./.venv/Scripts/python -m pip install -e ".[ui,ocr]"
+# Install the platform-specific PaddlePaddle runtime as described in docs/ocr.md.
+./.venv/Scripts/document-parser models prepare --target ./models --profiles structured,text --languages az,en,ru
+./.venv/Scripts/document-parser models verify --target ./models
+./.venv/Scripts/document-parser ui --model-store ./models
+```
+
+Native-only testing can use `.[ui]` without OCR packages. The UI uses **AUTO**
+OCR, **STRUCTURED**, AZ/EN/RU, **CLEAN** Markdown, automatic tables and displayed
+formula values. Healthy native pages do not need OCR; scan candidates do.
+A missing runtime or model is an explicit conversion error when OCR is needed,
+not a silent switch to incomplete text. Models are never downloaded during parsing.
+
+The Python API and batch CLI retain their advanced options and **OCR OFF**
+defaults. This automatic policy belongs only to the UI. Restart an already
+running UI after updating an editable installation.
+
+The server binds only to `127.0.0.1`, with public sharing disabled. Keep the
+terminal open; Ctrl+C stops it. Source files are not included in downloads.
+Generated results are replaced on reconversion, cleared with **Təmizlə** and
+expired after one hour. See [the UI guide](docs/ui.md) for cleanup and errors.
 
 ## Command-line and batch conversion
 
@@ -757,6 +842,7 @@ document-parser convert <file-or-directory>... --output <directory>
 document-parser inspect <file>
 document-parser models prepare [--target <directory>]
 document-parser models verify [--target <directory>]
+document-parser ui [--model-store <directory>] [--port <port>] [--no-browser]
 document-parser version
 ```
 
@@ -910,12 +996,8 @@ byte for byte.
 This is a pre-alpha release. Important current boundaries are:
 
 - native PDF layout and heading detection are heuristic;
-- two-column native PDF prose can occasionally trigger the text-alignment table
-  fallback;
-- adjacent DOCX spans with different formatting can currently lose a
-  significant boundary space in Markdown;
-- a DOCX metadata title and an equivalent visible Title paragraph can both be
-  serialized;
+- ambiguous PDF tables and damaged native text require review; the score is
+  an extraction indicator, not proof that every source fact was verified;
 - the `TEXT` OCR profile does not guarantee table reconstruction;
 - unsupported DOCX charts, SmartArt, and equations can make a result
   `partial`;
@@ -924,9 +1006,9 @@ This is a pre-alpha release. Important current boundaries are:
 - encrypted input and password callbacks are not supported;
 - chunking and retrieval integration belong in the consuming application.
 
-The two-column PDF case and the two DOCX serialization cases have explicit
-`xfail` regression tests in the synthetic corpus, so they remain visible
-until fixed.
+The previously expected-failing two-column PDF and DOCX serialization regressions
+are ordinary passing tests in 0.8.0a1. Private corporate documents are never
+distributed as test fixtures; only anonymous reproductions are committed.
 
 ## Development and testing
 
@@ -979,6 +1061,7 @@ sizes and SHA-256 hashes are recorded in the corpus manifest.
 4. **Complete:** opt-in selective local OCR for scanned and mixed PDF pages.
 5. **Complete:** native/OCR reconciliation, structural normalization, and quality scoring.
 6. **Complete:** production CLI, batch conversion, and tagged release workflow.
+7. **Complete:** optional localhost-only Gradio document inspection interface.
 
 Chunking, embeddings, vector stores, and Kontakt-specific mapping remain
 consumer responsibilities.
@@ -990,6 +1073,7 @@ See [architecture.md](docs/architecture.md) for the intended component boundarie
 - [Architecture and component boundaries](docs/architecture.md)
 - [OCR installation, models, and reproducibility](docs/ocr.md)
 - [CLI commands, bundles, and exit codes](docs/cli.md)
+- [Local Gradio inspection interface](docs/ui.md)
 - [Dependency and license policy](docs/dependency-policy.md)
 - [Synthetic integration corpus](tests/fixtures/synthetic/README.md)
 - [Changelog](CHANGELOG.md)

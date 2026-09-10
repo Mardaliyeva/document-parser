@@ -10,6 +10,7 @@ document-parser convert <file-or-directory>... --output <directory>
 document-parser inspect <file>
 document-parser models prepare [--target <directory>]
 document-parser models verify [--target <directory>]
+document-parser ui [--model-store <directory>] [--port <port>] [--no-browser]
 document-parser version
 ```
 
@@ -18,6 +19,10 @@ DOCX, PDF, and XLSX files. `--recursive` includes nested directories. Explicit
 files are content-detected and can return typed unsupported or unsafe failures.
 
 OCR is opt-in:
+
+Markdown defaults to `--profile clean`. Use `--profile fidelity` explicitly
+for legacy HTML tables, asset links, and page comments. See
+[clean-markdown.md](clean-markdown.md) for presentation and migration rules.
 
 ```powershell
 document-parser convert scanned.pdf --output converted `
@@ -29,6 +34,11 @@ document-parser convert scanned.pdf --output converted `
 by normalized source path. `--fail-fast` is sequential and stops after the first
 failed item. Every worker owns its parser and OCR engine, so more jobs can
 multiply model memory usage.
+
+`ui` is available only with the optional `document-parser[ui]` extra. It opens
+the Azerbaijani single-document inspection interface on `127.0.0.1`; there is
+no remote-host or sharing flag. See [ui.md](ui.md) for its panels, downloads,
+privacy settings, and temp-file lifecycle.
 
 ## Bundle layout
 
@@ -67,6 +77,6 @@ symlink components, unsafe asset names, and bundle path escapes are rejected.
 
 The release workflow runs only for a `v*` tag. It checks tag/version equality,
 reruns quality gates, builds wheel/sdist files, performs a clean-wheel smoke
-test, and creates SHA-256 checksums and a CycloneDX runtime SBOM. PyPI upload
+test, and creates SHA-256 checksums plus base and UI CycloneDX SBOMs. PyPI upload
 uses trusted publishing through the protected `pypi` GitHub Environment.
 Creating the workflow alone does not create a tag or publish a package.

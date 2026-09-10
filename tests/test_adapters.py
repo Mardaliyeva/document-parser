@@ -160,7 +160,7 @@ def test_docx_adapter_preserves_structure_assets_and_markdown() -> None:
     assert len(result.assets) == 1
     assert "# DOCX Sample" in result.markdown
     assert "Repeated header" not in result.markdown
-    assert "sha256-" in result.markdown
+    assert "sha256-" not in result.markdown
     assert convert(source, filename="sample.docx") == result
 
 
@@ -238,7 +238,7 @@ def test_pdf_adapter_extracts_native_layout_tables_and_scan_candidates() -> None
     assert any(diagnostic.code == "pdf.ocr_required" for diagnostic in result.document.diagnostics)
     assert any(isinstance(block, HeadingBlock) for block in blocks)
     assert any(isinstance(block, TableBlock) for block in blocks)
-    assert "<!-- page: 1 -->" in result.markdown
+    assert "<!-- page: 1 -->" not in result.markdown
     assert result.assets
 
 

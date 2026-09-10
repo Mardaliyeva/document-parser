@@ -52,10 +52,20 @@ _REVIEW_CODES = {
     "ocr.no_text_detected",
     "ocr.table_unstructured",
     "pdf.ocr_required",
+    "pdf.table_rejected",
+    "quality.incomplete_coverage",
     "quality.low_confidence",
     "reconciliation.conflict",
+    "reconciliation.low_quality_native",
 }
 _STRUCTURE_TOKENS = ("table", "chart", "pivot", "structure", "smartart", "equation")
+
+
+def _extraction_confidence(block: ContentBlock) -> float:
+    if block.source is not None and block.source.confidence is not None:
+        return block.source.confidence
+    quality = block.attributes.get("native_extraction_quality", 0.95)
+    return min(1.0, max(0.0, float(quality))) if isinstance(quality, (int, float)) else 0.95
 
 
 def _text_and_confidence(block: ContentBlock) -> tuple[int, float]:
@@ -63,11 +73,7 @@ def _text_and_confidence(block: ContentBlock) -> tuple[int, float]:
         return 0, 0.0
     if isinstance(block, (HeadingBlock, ParagraphBlock)):
         count = len("".join(span.text for span in block.spans).strip())
-        confidence = (
-            block.source.confidence
-            if block.source is not None and block.source.confidence is not None
-            else 1.0
-        )
+        confidence = _extraction_confidence(block)
         return count, confidence * count
     if isinstance(block, ContainerBlock):
         return _blocks_text_and_confidence(block.blocks)
@@ -78,11 +84,7 @@ def _text_and_confidence(block: ContentBlock) -> tuple[int, float]:
     if isinstance(block, TableBlock):
         count = 0
         weighted = 0.0
-        table_confidence = (
-            block.source.confidence
-            if block.source is not None and block.source.confidence is not None
-            else 1.0
-        )
+        table_confidence = _extraction_confidence(block)
         for row in block.rows:
             for cell in row.cells:
                 cell_count = len(cell.displayed_text.strip())
@@ -102,7 +104,11 @@ def _blocks_text_and_confidence(blocks: tuple[ContentBlock, ...]) -> tuple[int, 
 
 
 def _meaningful_unit(block: ContainerBlock) -> bool:
-    return bool(block.blocks) or block.attributes.get("scan_candidate") is True
+    return (
+        bool(block.blocks)
+        or block.attributes.get("scan_candidate") is True
+        or block.attributes.get("extraction_failed") is True
+    )
 
 
 def _quality_units(document: Document) -> tuple[QualityUnit, ...]:
@@ -141,6 +147,21 @@ def _quality_units(document: Document) -> tuple[QualityUnit, ...]:
             identifier = str(container.attributes.get("sheet_name", f"Sheet {index}"))
             scope = QualityScope.SHEET
         flags = () if count else ("quality.no_text",)
+        unresolved = tuple(
+            d.code
+            for d in document.diagnostics
+            if d.location
+            and d.location.page_number
+            and str(d.location.page_number) == identifier
+            and d.code
+            in {
+                "pdf.ocr_required",
+                "pdf.page_extraction_failed",
+                "ocr.page_failed",
+                "ocr.no_text_detected",
+            }
+        )
+        flags = tuple(sorted(set((*flags, *unresolved))))
         units.append(
             QualityUnit(
                 scope=scope,
@@ -181,7 +202,20 @@ def assess_quality(document: Document, *, options: QualityOptions | None = None)
 
     resolved = options or QualityOptions()
     units = _quality_units(document)
-    coverage = sum(unit.text_characters > 0 for unit in units) / len(units)
+    coverage = sum(
+        unit.text_characters > 0
+        and not any(
+            code
+            in {
+                "pdf.ocr_required",
+                "pdf.page_extraction_failed",
+                "ocr.page_failed",
+                "ocr.no_text_detected",
+            }
+            for code in unit.flags
+        )
+        for unit in units
+    ) / len(units)
     total_characters = sum(unit.text_characters for unit in units)
     confidence = (
         sum(unit.confidence * unit.text_characters for unit in units) / total_characters

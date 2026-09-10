@@ -93,7 +93,10 @@ def _box(block: ContentBlock) -> BoundingBox | None:
 def _confidence(block: ContentBlock, *, scan_candidate: bool) -> float:
     if block.source is not None and block.source.confidence is not None:
         return block.source.confidence
-    return 0.5 if scan_candidate else 1.0
+    measured = block.attributes.get("native_extraction_quality")
+    if isinstance(measured, (int, float)):
+        return min(1.0, max(0.0, float(measured)))
+    return 0.5 if scan_candidate else 0.95
 
 
 def _set_active(block: ContentBlock, active: bool, details: dict[str, JsonValue]) -> ContentBlock:
@@ -186,49 +189,91 @@ def _reconcile_page(
             {"reconciliation_decision": "complement"},
         )
 
-    unmatched = set(native_indexes)
-    diagnostics: list[Diagnostic] = []
-    for ocr_index in ocr_indexes:
-        ocr = blocks[ocr_index]
-        ocr_text = _comparison_text(ocr)
-        candidates = []
-        for native_index in sorted(unmatched):
-            native = blocks[native_index]
-            geometry = _overlap(_box(ocr), _box(native))
-            if geometry < options.geometry_overlap:
+    # Connected overlap components handle one native paragraph versus many OCR
+    # lines (and the reverse) without reactivating duplicate fragments.
+    adjacency: dict[int, set[int]] = {i: set() for i in (*native_indexes, *ocr_indexes)}
+    for native_index in native_indexes:
+        for ocr_index in ocr_indexes:
+            if (
+                _overlap(_box(blocks[native_index]), _box(blocks[ocr_index]))
+                >= options.geometry_overlap
+            ):
+                adjacency[native_index].add(ocr_index)
+                adjacency[ocr_index].add(native_index)
+    groups: list[list[int]] = []
+    remaining = set(adjacency)
+    while remaining:
+        pending = [min(remaining)]
+        connected: set[int] = set()
+        while pending:
+            index = pending.pop()
+            if index in connected:
                 continue
-            native_text = _comparison_text(native)
-            similarity = (
-                SequenceMatcher(None, ocr_text, native_text, autojunk=False).ratio()
-                if ocr_text and native_text
-                else 0.0
-            )
-            candidates.append((geometry, similarity, native_index))
-        if not candidates:
-            blocks[ocr_index] = _set_active(ocr, True, {"reconciliation_decision": "complement"})
+            connected.add(index)
+            pending.extend(sorted(adjacency[index] - connected, reverse=True))
+        remaining.difference_update(connected)
+        groups.append(sorted(connected))
+    diagnostics: list[Diagnostic] = []
+    for group in groups:
+        natives = [i for i in group if i in native_indexes]
+        recognized = [i for i in group if i in ocr_indexes]
+        if not natives or not recognized:
+            for index in group:
+                measured = blocks[index].attributes.get("native_extraction_quality")
+                damaged = index in natives and isinstance(measured, (int, float)) and measured < 0.7
+                blocks[index] = _set_active(
+                    blocks[index],
+                    not damaged,
+                    {"reconciliation_decision": "low_quality_native" if damaged else "complement"},
+                )
+                if damaged:
+                    diagnostics.append(
+                        Diagnostic(
+                            code="reconciliation.low_quality_native",
+                            message="Unmatched damaged native text was retained in IR, not active Markdown.",
+                            location=SourceLocation(page_number=_page_number(page)),
+                        )
+                    )
             continue
-        geometry, similarity, native_index = max(
-            candidates, key=lambda item: (item[0], item[1], -item[2])
+        native = blocks[natives[0]]
+        ocr = blocks[recognized[0]]
+        native_text = " ".join(_comparison_text(blocks[i]) for i in natives)
+        ocr_text = " ".join(_comparison_text(blocks[i]) for i in recognized)
+        similarity = (
+            SequenceMatcher(None, ocr_text, native_text, autojunk=False).ratio()
+            if ocr_text and native_text
+            else 0.0
         )
-        unmatched.remove(native_index)
-        native = blocks[native_index]
-        ocr_confidence = _confidence(ocr, scan_candidate=scan_candidate)
-        native_confidence = _confidence(native, scan_candidate=scan_candidate)
+        geometry = max(
+            _overlap(_box(blocks[i]), _box(blocks[j])) for i in natives for j in recognized
+        )
+
+        def weighted_confidence(indexes: list[int]) -> float:
+            weights = [max(1, len(_plain_text(blocks[i]))) for i in indexes]
+            return sum(
+                _confidence(blocks[i], scan_candidate=scan_candidate) * weight
+                for i, weight in zip(indexes, weights, strict=True)
+            ) / sum(weights)
+
+        ocr_confidence = weighted_confidence(recognized)
+        native_confidence = weighted_confidence(natives)
         prefer_ocr = scan_candidate and (
             ocr_confidence >= native_confidence + options.ocr_confidence_margin
         )
         duplicate = similarity >= options.duplicate_text_similarity
         reason = "duplicate" if duplicate else "conflict"
-        blocks[ocr_index] = _set_active(
-            ocr,
-            prefer_ocr,
-            _decision_details(reason, native, similarity, geometry, ocr_confidence),
-        )
-        blocks[native_index] = _set_active(
-            native,
-            not prefer_ocr,
-            _decision_details(reason, ocr, similarity, geometry, native_confidence),
-        )
+        for index in recognized:
+            blocks[index] = _set_active(
+                blocks[index],
+                prefer_ocr,
+                _decision_details(reason, native, similarity, geometry, ocr_confidence),
+            )
+        for index in natives:
+            blocks[index] = _set_active(
+                blocks[index],
+                not prefer_ocr,
+                _decision_details(reason, ocr, similarity, geometry, native_confidence),
+            )
         if not duplicate:
             diagnostics.append(
                 Diagnostic(
@@ -239,6 +284,8 @@ def _reconcile_page(
                     details={
                         "native_block_id": native.block_id,
                         "ocr_block_id": ocr.block_id,
+                        "native_block_ids": [blocks[i].block_id for i in natives],
+                        "ocr_block_ids": [blocks[i].block_id for i in recognized],
                         "selected_source": "ocr" if prefer_ocr else "native",
                         "text_similarity": round(similarity, 6),
                         "geometry_overlap": round(geometry, 6),
@@ -256,7 +303,7 @@ def _reconcile_document(document: Document, options: NormalizationOptions) -> Do
     diagnostics = [
         diagnostic
         for diagnostic in document.diagnostics
-        if diagnostic.code != "reconciliation.conflict"
+        if diagnostic.code not in {"reconciliation.conflict", "reconciliation.low_quality_native"}
     ]
     blocks: list[ContentBlock] = []
     for block in document.blocks:
@@ -267,7 +314,7 @@ def _reconcile_document(document: Document, options: NormalizationOptions) -> Do
     return document.model_copy(update={"blocks": tuple(blocks), "diagnostics": tuple(diagnostics)})
 
 
-def _normalize_text(value: str, options: NormalizationOptions) -> str:
+def _normalize_text(value: str, options: NormalizationOptions, *, trim: bool = True) -> str:
     normalized = unicodedata.normalize("NFC", value) if options.normalize_unicode else value
     normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
     normalized = "".join(
@@ -277,7 +324,8 @@ def _normalize_text(value: str, options: NormalizationOptions) -> str:
     )
     if options.normalize_whitespace:
         normalized = "\n".join(
-            _HORIZONTAL_SPACE.sub(" ", line).strip() for line in normalized.split("\n")
+            (_HORIZONTAL_SPACE.sub(" ", line).strip() if trim else _HORIZONTAL_SPACE.sub(" ", line))
+            for line in normalized.split("\n")
         )
     return normalized
 
@@ -299,7 +347,7 @@ def _normalize_spans(
     normalized: list[TextSpan] = []
     changed = False
     for span in spans:
-        text = _normalize_text(span.text, options)
+        text = _normalize_text(span.text, options, trim=False)
         changed = changed or text != span.text
         candidate = span.model_copy(update={"text": text})
         if normalized and _span_signature(normalized[-1]) == _span_signature(candidate):
@@ -308,6 +356,18 @@ def _normalize_spans(
             changed = True
         else:
             normalized.append(candidate)
+    if options.normalize_whitespace:
+        # Whitespace belongs to the paragraph, not to individual formatting runs.
+        for index, span in enumerate(normalized):
+            text = _normalize_text(span.text, options, trim=False)
+            if index == 0:
+                text = text.lstrip()
+            if index == len(normalized) - 1:
+                text = text.rstrip()
+            if index and normalized[index - 1].text.endswith(" "):
+                text = text.lstrip(" ")
+            changed = changed or text != span.text
+            normalized[index] = span.model_copy(update={"text": text})
     return tuple(normalized), changed
 
 
@@ -316,7 +376,7 @@ def _normalize_block(block: ContentBlock, options: NormalizationOptions) -> Cont
         title, changed = _normalize_spans(block.title, options)
         children = _normalize_sequence(block.blocks, options)
         attributes = dict(block.attributes)
-        if changed:
+        if changed and "normalization_original_title" not in attributes:
             attributes["normalization_original_title"] = [
                 span.model_dump(mode="json") for span in block.title
             ]
@@ -352,7 +412,7 @@ def _normalize_block(block: ContentBlock, options: NormalizationOptions) -> Cont
     if isinstance(block, (HeadingBlock, ParagraphBlock)):
         spans, changed = _normalize_spans(block.spans, options)
         attributes = dict(block.attributes)
-        if changed:
+        if changed and "normalization_original_spans" not in attributes:
             attributes["normalization_original_spans"] = [
                 span.model_dump(mode="json") for span in block.spans
             ]

@@ -51,7 +51,7 @@ Canonical Markdown serializer
 ConversionResult(Document + Markdown + assets)
          |
          v
-Python API or atomic CLI bundle
+Python API, atomic CLI bundle, or optional local UI
 ```
 
 OCR is an opt-in post-processing stage for PDF adapter output. The native PDF
@@ -74,10 +74,13 @@ XLSX never enter this stage.
 - **Quality:** scores coverage, confidence, structure, and fidelity and resolves review status.
 - **Serializer:** creates deterministic RAG-friendly Markdown from validated IR.
 - **Batch/CLI:** writes complete bundles atomically and isolates per-source failures.
+- **Local UI:** maps one conversion bundle to Gradio views and short-lived downloads without
+  duplicating parser, OCR, normalization, quality, or serialization logic.
 
 The library will not contain application-specific storage, authentication,
-embedding, vector search, agent, or UI code. These belong to consumers such as
-Kontakt AI.
+embedding, vector search, hosted application, or agent code. The optional UI is
+a localhost-only test surface; production UI and Kontakt AI integration remain
+consumer responsibilities.
 
 ## Core API contract
 
@@ -149,6 +152,11 @@ than being downgraded to warnings.
 
 ## Selective OCR behavior
 
+The simple local UI fixes AUTO/STRUCTURED AZ+EN+RU and CLEAN Markdown as its
+conversion policy. Users upload and convert without configuration controls;
+technical results are collapsed. This wrapper delegates to the same parser,
+without changing Python/CLI OCR OFF defaults or the extraction engines.
+
 `OcrPageInput` carries a bounded PNG rendering, PDF point dimensions, rotation,
 and page identity. `OcrPageResult` contains ordered semantic regions, text-line
 coordinates, table grids, confidence, model names, and engine diagnostics.
@@ -201,16 +209,35 @@ content-addressed bundles containing Markdown, IR JSON, a manifest, and assets.
 ## Markdown contract
 
 The in-house serializer has no runtime dependency. It emits document/sheet
-titles, heading hierarchy, nested lists, GFM tables for simple grids, HTML tables
-for merges or nested cells, content-addressed image links, and PDF page markers.
+titles, heading hierarchy, nested lists, and GFM tables for simple grids. The
+default CLEAN profile emits contextual records for complex tables, without
+generated HTML, image links, or page comments. FIDELITY explicitly restores
+HTML tables, underline, content-addressed image links, and page markers.
 Repeated headers/footers and hidden sheets remain in IR but are omitted by
 default. Fixed IR and options produce the same LF-normalized output with one
 final newline.
 
+## Optional local UI boundary
+
+`document_parser.ui` is intentionally absent from the package root imports.
+Gradio is loaded only by `build_ui()` or the `document-parser ui` command, so a
+base import and every non-UI workflow remain independent of the optional UI
+dependency. The controller calls the same `DocumentParser.convert()` and
+`write_conversion_bundle()` functions as Python and CLI users.
+
+One browser session owns at most one result job. Jobs are created beneath an
+application-owned temporary root, never accept browser-provided output paths,
+and contain only the generated bundle and deterministic ZIP. Session deletion,
+clear, replacement, TTL cleanup, and server shutdown remove these artifacts.
+The server address and sharing mode are fixed to `127.0.0.1` and `False`.
+Every callback endpoint is private and the queue permits only one concurrent
+conversion, preventing duplicate OCR model loads.
+
 ## Version-one boundary
 
-Version one supports DOCX, PDF, and XLSX conversion only through Python and CLI
-interfaces. Development release `0.6.0a1` uses IR schema `0.2` and includes
+Version one supports DOCX, PDF, and XLSX conversion through Python, CLI, and an
+optional localhost-only inspection UI. Development release `0.8.0a1` uses IR
+schema `0.2` and includes
 selective OCR, reconciliation, normalization, quality scoring, and atomic batch
 bundles. Chunking, embeddings, search-index writes, application storage, and
 Kontakt-specific mapping remain outside this library.

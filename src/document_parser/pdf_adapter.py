@@ -28,6 +28,9 @@ from document_parser.models import (
     DocumentStatus,
     FigureBlock,
     HeadingBlock,
+    ListBlock,
+    ListItem,
+    ListKind,
     ParagraphBlock,
     SourceLocation,
     TableBlock,
@@ -59,6 +62,7 @@ class _PdfLine:
     bottom: float
     size: float
     bold: bool
+    words: tuple[_PdfWord, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +88,9 @@ class _PdfPageData:
     tables: tuple[_PdfTableData, ...]
     image_boxes: tuple[tuple[float, float, float, float], ...]
     scan_candidate: bool
+    native_quality: float = 0.95
+    scan_reason: str = ""
+    extraction_failed: bool = False
 
 
 class _PdfContext:
@@ -160,6 +167,21 @@ class PdfAdapter:
                             severity=DiagnosticSeverity.ERROR,
                         )
                         context.partial = True
+                        page_data.append(
+                            _PdfPageData(
+                                page_number=page_number,
+                                width=1.0,
+                                height=1.0,
+                                rotation=0,
+                                words=(),
+                                lines=(),
+                                tables=(),
+                                image_boxes=(),
+                                scan_candidate=False,
+                                native_quality=0.0,
+                                extraction_failed=True,
+                            )
+                        )
         except Exception as exc:
             raise InvalidDocumentError(
                 "PDF layout could not be read", source_name=source.info.name
@@ -168,7 +190,15 @@ class PdfAdapter:
         repeated = _repeated_margin_lines(
             tuple(page_data), options.pdf.repeated_margin_min_fraction
         )
-        body_sizes = [word.size for page in page_data for word in page.words if word.text.strip()]
+        body_sizes = [
+            word.size
+            for page in page_data
+            if not page.scan_candidate
+            for word in page.words
+            if word.text.strip()
+            and page.height * 0.18 < word.top < page.height * 0.9
+            and not any(_inside(word, table.bbox) for table in page.tables)
+        ]
         body_size = statistics.median(body_sizes) if body_sizes else 10.0
         heading_sizes = sorted(
             {
@@ -181,17 +211,19 @@ class PdfAdapter:
         )
 
         pages: list[ContentBlock] = []
-        for data_index, extracted in enumerate(page_data):
+        for extracted in page_data:
             blocks = _page_blocks(extracted, repeated, body_size, heading_sizes, context, options)
             if extracted.scan_candidate:
                 context.needs_review = True
                 context.diagnostic(
                     "pdf.ocr_required",
-                    "The page contains too little native text and is an OCR candidate.",
+                    f"The page requires OCR: {extracted.scan_reason or 'insufficient native text'}.",
                     page_number=extracted.page_number,
                 )
-            if data_index < len(reader.pages):
-                blocks.extend(_page_images(reader.pages[data_index], extracted, context))
+            if not extracted.extraction_failed and extracted.page_number <= len(reader.pages):
+                blocks.extend(
+                    _page_images(reader.pages[extracted.page_number - 1], extracted, context)
+                )
             block_id = context.next_id("page")
             pages.append(
                 ContainerBlock(
@@ -203,6 +235,10 @@ class PdfAdapter:
                     attributes={
                         "rotation": extracted.rotation,
                         "scan_candidate": extracted.scan_candidate,
+                        "ocr_selection_reason": extracted.scan_reason,
+                        "native_extraction_quality": extracted.native_quality,
+                        "confidence_kind": "native_heuristic",
+                        "extraction_failed": extracted.extraction_failed,
                     },
                     blocks=tuple(blocks),
                 )
@@ -218,7 +254,7 @@ class PdfAdapter:
             document_id=f"sha256:{source.info.sha256}",
             source=source.info,
             metadata=_pdf_metadata(reader),
-            blocks=tuple(pages),
+            blocks=_mark_repeated_tables(tuple(pages), options.pdf.repeated_margin_min_fraction),
             assets=context.assets.refs,
             status=status,
             diagnostics=tuple((*source.info.diagnostics, *context.diagnostics)),
@@ -234,11 +270,20 @@ def _extract_words(page: Any) -> tuple[_PdfWord, ...]:
     raw_words = cast(
         list[dict[str, object]],
         page.extract_words(
-            extra_attrs=["fontname", "size"],
+            return_chars=True,
             keep_blank_chars=False,
             use_text_flow=False,
         ),
     )
+
+    def style(word: dict[str, object]) -> tuple[float, str]:
+        chars = cast(list[dict[str, object]], word.get("chars", []))
+        if not chars:
+            return max(0.1, _number(word.get("size"), 10.0)), str(word.get("fontname", ""))
+        sizes = [_number(c.get("size"), 10.0) for c in chars]
+        fonts = [str(c.get("fontname", "")) for c in chars]
+        return max(0.1, statistics.median(sizes)), max(dict.fromkeys(fonts), key=fonts.count)
+
     words = [
         _PdfWord(
             text=normalize_text(str(word.get("text", ""))),
@@ -246,8 +291,8 @@ def _extract_words(page: Any) -> tuple[_PdfWord, ...]:
             x1=_number(word.get("x1")),
             top=_number(word.get("top")),
             bottom=_number(word.get("bottom")),
-            size=max(0.1, _number(word.get("size"), 10.0)),
-            fontname=str(word.get("fontname", "")),
+            size=style(word)[0],
+            fontname=style(word)[1],
         )
         for word in raw_words
         if str(word.get("text", "")).strip()
@@ -269,7 +314,13 @@ def _group_lines(words: tuple[_PdfWord, ...]) -> tuple[_PdfLine, ...]:
         split_threshold = max(24.0, typical_height * 4)
         chunks: list[list[_PdfWord]] = [[]]
         for word in ordered:
-            if chunks[-1] and word.x0 - chunks[-1][-1].x1 > split_threshold:
+            if (
+                chunks[-1]
+                and word.x0 - chunks[-1][-1].x1 > split_threshold
+                and not re.fullmatch(
+                    r"(?:\d+(?:\.\d+)*\.?|[•○●▪■o])", " ".join(w.text for w in chunks[-1])
+                )
+            ):
                 chunks.append([])
             chunks[-1].append(word)
         for chunk in chunks:
@@ -281,7 +332,9 @@ def _group_lines(words: tuple[_PdfWord, ...]) -> tuple[_PdfLine, ...]:
                     top=min(word.top for word in chunk),
                     bottom=max(word.bottom for word in chunk),
                     size=max(word.size for word in chunk),
-                    bold=any("bold" in word.fontname.lower() for word in chunk),
+                    bold=sum(len(word.text) for word in chunk if "bold" in word.fontname.lower())
+                    >= 0.8 * sum(len(word.text) for word in chunk),
+                    words=tuple(chunk),
                 )
             )
     return tuple(lines)
@@ -322,7 +375,15 @@ def _materialize_table(raw_table: Any, page: Any) -> _PdfTableData:
     cells: list[_PdfCellData] = []
     for raw_cell in cast(list[tuple[float, ...]], raw_table.cells):
         box = cast(tuple[float, float, float, float], tuple(map(float, raw_cell)))
-        text = normalize_text(str(page.crop(box).extract_text() or "")).strip()
+        # Unlike crop(), a center filter never clips neighboring glyphs into this cell.
+        selected = page.filter(
+            lambda obj, rect=box: (
+                obj.get("object_type") == "char"
+                and rect[0] <= (obj["x0"] + obj["x1"]) / 2 < rect[2]
+                and rect[1] <= (obj["top"] + obj["bottom"]) / 2 < rect[3]
+            )
+        )
+        text = normalize_text(str(selected.extract_text() or "")).strip()
         cells.append(_PdfCellData(bbox=box, text=text))
     return _PdfTableData(
         bbox=cast(tuple[float, float, float, float], tuple(map(float, raw_table.bbox))),
@@ -335,24 +396,60 @@ def _find_tables(page: Any, options: ParseOptions) -> tuple[_PdfTableData, ...]:
         return ()
     line_settings = {"vertical_strategy": "lines", "horizontal_strategy": "lines"}
     tables = tuple(cast(list[object], page.find_tables(table_settings=line_settings)))
-    if tables:
-        return tuple(_materialize_table(table, page) for table in tables)
+    materialized = tuple(_materialize_table(table, page) for table in tables)
     words = _extract_words(page)
-    if len(_group_lines(words)) < 3:
-        return ()
+    lines = _group_lines(words)
+    if len(lines) < 3 or (
+        _column_split(lines) is not None
+        and sum(line.text.endswith((".", "!", "?")) for line in lines) >= len(lines) * 0.5
+    ):
+        return materialized
     text_settings = {
         "vertical_strategy": "text",
         "horizontal_strategy": "text",
         "min_words_vertical": 2,
         "min_words_horizontal": 1,
     }
-    candidates = tuple(cast(list[object], page.find_tables(table_settings=text_settings)))
+    candidates = tuple(cast(list[Any], page.find_tables(table_settings=text_settings)))
     accepted = tuple(
         table
         for table in candidates
-        if len(getattr(table, "rows", ())) >= 3 and len(getattr(table, "columns", ())) >= 2
+        if len(getattr(table, "rows", ())) >= 3
+        and len(getattr(table, "columns", ())) >= 2
+        and not any(_boxes_overlap(tuple(table.bbox), other.bbox) for other in materialized)
     )
-    return tuple(_materialize_table(table, page) for table in accepted)
+    fallback = tuple(_materialize_table(table, page) for table in accepted)
+    return (*materialized, *(table for table in fallback if _credible_text_table(table)))
+
+
+def _boxes_overlap(left: tuple[float, ...], right: tuple[float, ...]) -> bool:
+    return min(left[2], right[2]) > max(left[0], right[0]) and min(left[3], right[3]) > max(
+        left[1], right[1]
+    )
+
+
+def _credible_text_table(table: _PdfTableData) -> bool:
+    nonempty = [cell.text for cell in table.cells if cell.text.strip()]
+    # Prose columns are not tabular data. Require predominantly short aligned fields.
+    return (
+        len(nonempty) >= 6
+        and sum(len(text.split()) <= 3 for text in nonempty) / len(nonempty) >= 0.75
+    )
+
+
+def _native_quality(words: tuple[_PdfWord, ...]) -> tuple[float, str]:
+    if not words:
+        return 0.0, "no native text"
+    mixed = sum(
+        bool(re.search(r"[A-Za-zƏəĞğŞşÇçÖöÜüİ\u0131]", w.text))
+        and bool(re.search(r"[\u0400-\u04ff]", w.text))
+        for w in words
+    )
+    suspicious = sum(bool(re.search(r"[\ufffd■�]", w.text)) for w in words)
+    ratio = (mixed + suspicious) / len(words)
+    if ratio >= 0.03:
+        return max(0.2, 0.7 - ratio), "suspicious mixed-script or damaged native text layer"
+    return 0.95, ""
 
 
 def _extract_page(page: Any, page_number: int, options: ParseOptions) -> _PdfPageData:
@@ -366,10 +463,10 @@ def _extract_page(page: Any, page_number: int, options: ParseOptions) -> _PdfPag
     )
     native_count = sum(character.isalnum() for word in words for character in word.text)
     image_coverage = image_area / (width * height)
+    native_quality, reason = _native_quality(words)
     scan_candidate = (
-        native_count < options.pdf.min_native_alphanumeric_chars
-        and image_coverage >= options.pdf.scan_image_coverage_threshold
-    )
+        native_count < options.pdf.min_native_alphanumeric_chars or native_quality < 0.7
+    ) and image_coverage >= options.pdf.scan_image_coverage_threshold
     return _PdfPageData(
         page_number=page_number,
         width=width,
@@ -377,14 +474,17 @@ def _extract_page(page: Any, page_number: int, options: ParseOptions) -> _PdfPag
         rotation=int(getattr(page, "rotation", 0) or 0),
         words=words,
         lines=_group_lines(words),
-        tables=_find_tables(page, options),
+        tables=() if scan_candidate else _find_tables(page, options),
         image_boxes=image_boxes,
         scan_candidate=scan_candidate,
+        native_quality=native_quality,
+        scan_reason=reason if scan_candidate else "",
     )
 
 
 def _line_key(line: _PdfLine) -> str:
-    return re.sub(r"\s+", " ", line.text).strip().casefold()
+    text = re.sub(r"\s+", " ", line.text).strip().casefold()
+    return re.sub(r"^\d+\s*/\s*\d+$", "page-counter", text)
 
 
 def _repeated_margin_lines(pages: tuple[_PdfPageData, ...], minimum_fraction: float) -> set[str]:
@@ -402,8 +502,17 @@ def _repeated_margin_lines(pages: tuple[_PdfPageData, ...], minimum_fraction: fl
 
 
 def _heading_candidate(line: _PdfLine, body_size: float) -> bool:
-    return len(line.text) <= 120 and (
-        line.size >= body_size * 1.25 or (line.bold and line.size >= body_size * 1.15)
+    return (
+        sum(c.isalpha() for c in line.text) >= 2
+        and len(line.text) <= 120
+        and (
+            (
+                line.bold
+                and (bool(re.match(r"^\d+(?:\.\d+)*\.?\s+", line.text)) or line.text.isupper())
+            )
+            or line.size >= body_size * 1.25
+            or (line.bold and line.size >= body_size * 1.15)
+        )
     )
 
 
@@ -429,7 +538,17 @@ def _inside(word: _PdfWord, box: tuple[float, float, float, float]) -> bool:
     center_x = (word.x0 + word.x1) / 2
     center_y = (word.top + word.bottom) / 2
     x0, top, x1, bottom = box
-    return x0 <= center_x <= x1 and top <= center_y <= bottom
+    return x0 <= center_x < x1 and top <= center_y < bottom
+
+
+def _cluster_coordinates(values: list[float], tolerance: float = 1.0) -> list[float]:
+    groups: list[list[float]] = []
+    for value in sorted(values):
+        if not groups or value - groups[-1][0] > tolerance:
+            groups.append([value])
+        else:
+            groups[-1].append(value)
+    return [statistics.fmean(group) for group in groups]
 
 
 def _pdf_table(
@@ -440,18 +559,26 @@ def _pdf_table(
     cells = [cell.bbox for cell in raw_table.cells]
     if not cells:
         return None
-    x_values = sorted({round(value, 3) for cell in cells for value in (cell[0], cell[2])})
-    y_values = sorted({round(value, 3) for cell in cells for value in (cell[1], cell[3])})
+    x_values = _cluster_coordinates([value for cell in cells for value in (cell[0], cell[2])])
+    y_values = _cluster_coordinates([value for cell in cells for value in (cell[1], cell[3])])
     if len(x_values) < 2 or len(y_values) < 2:
         return None
     rows: dict[int, list[TableCell]] = {index: [] for index in range(len(y_values) - 1)}
     ordered_cells = sorted(raw_table.cells, key=lambda cell: (cell.bbox[1], cell.bbox[0]))
     for cell_data in ordered_cells:
         x0, top, x1, bottom = cell_data.bbox
-        column = x_values.index(round(x0, 3))
-        row = y_values.index(round(top, 3))
-        column_span = x_values.index(round(x1, 3)) - column
-        row_span = y_values.index(round(bottom, 3)) - row
+        column = min(range(len(x_values)), key=lambda i: abs(x_values[i] - x0))
+        row = min(range(len(y_values)), key=lambda i: abs(y_values[i] - top))
+        column_span = min(range(len(x_values)), key=lambda i: abs(x_values[i] - x1)) - column
+        row_span = min(range(len(y_values)), key=lambda i: abs(y_values[i] - bottom)) - row
+        if column_span < 1 or row_span < 1:
+            context.needs_review = True
+            context.diagnostic(
+                "pdf.table_rejected",
+                "Degenerate table retained as native text.",
+                page_number=page.page_number,
+            )
+            return None
         rows[row].append(
             TableCell(
                 column_index=column,
@@ -479,6 +606,10 @@ def _pdf_table(
             block_index=context.sequence,
             bounding_box=_bbox(*table_box, page.width, page.height),
         ),
+        attributes={
+            "extraction_method": "native",
+            "native_extraction_quality": page.native_quality,
+        },
     )
 
 
@@ -490,23 +621,39 @@ def _page_blocks(
     context: _PdfContext,
     options: ParseOptions,
 ) -> list[ContentBlock]:
-    table_boxes = [table.bbox for table in page.tables]
-    free_lines = [
-        line
-        for line in page.lines
-        if not any(
-            _inside(
-                _PdfWord(line.text, line.x0, line.x1, line.top, line.bottom, line.size, ""),
-                box,
-            )
-            for box in table_boxes
-        )
+    valid_tables = [
+        (raw, table) for raw in page.tables if (table := _pdf_table(raw, page, context)) is not None
     ]
+    table_boxes = [raw.bbox for raw, _ in valid_tables]
+    free_lines = (
+        list(
+            _group_lines(
+                tuple(
+                    word
+                    for word in page.words
+                    if not any(_inside(word, box) for box in table_boxes)
+                )
+            )
+        )
+        if page.words
+        else list(page.lines)
+    )
+    sizes = [
+        w.size
+        for w in page.words
+        if page.height * 0.18 < w.top < page.height * 0.9
+        and not any(_inside(w, b) for b in table_boxes)
+    ]
+    body_size = statistics.median(sizes) if sizes and not page.scan_candidate else body_size
     column_split = _column_split(free_lines)
     events: list[tuple[int, float, float, ContentBlock]] = []
     for line in free_lines:
         repeated_margin = _line_key(line) in repeated
-        attributes: dict[str, object] = {}
+        attributes: dict[str, object] = {
+            "extraction_method": "native",
+            "native_extraction_quality": page.native_quality,
+            "confidence_kind": "native_heuristic",
+        }
         if repeated_margin:
             attributes["story"] = "header" if line.top <= page.height * 0.1 else "footer"
             attributes["repeated_margin"] = True
@@ -521,16 +668,21 @@ def _page_blocks(
             and not repeated_margin
         ):
             rounded_size = round(line.size, 2)
+            number_match = re.match(r"^(\d+(?:\.\d+)*)(?:\.)?\s", line.text)
             level = (
-                min(6, heading_sizes.index(rounded_size) + 1)
-                if rounded_size in heading_sizes
-                else 6
+                min(6, len(number_match[1].split(".")))
+                if number_match
+                else (
+                    min(6, heading_sizes.index(rounded_size) + 1)
+                    if rounded_size in heading_sizes
+                    else 6
+                )
             )
             block_id = context.next_id("heading")
             block: ContentBlock = HeadingBlock(
                 block_id=block_id,
                 level=level,
-                spans=(TextSpan(text=line.text, bold=line.bold),),
+                spans=_line_spans(line),
                 source=location,
                 attributes=cast(dict[str, Any], attributes),
             )
@@ -538,19 +690,186 @@ def _page_blocks(
             block_id = context.next_id("paragraph")
             block = ParagraphBlock(
                 block_id=block_id,
-                spans=(TextSpan(text=line.text, bold=line.bold),),
+                spans=_line_spans(line),
                 source=location,
                 attributes=cast(dict[str, Any], attributes),
             )
         column = 1 if column_split is not None and line.x0 >= column_split else 0
         events.append((column, line.top, line.x0, block))
 
-    for raw_table in page.tables:
-        table = _pdf_table(raw_table, page, context)
-        if table is not None:
-            column = 1 if column_split is not None and raw_table.bbox[0] >= column_split else 0
-            events.append((column, raw_table.bbox[1], raw_table.bbox[0], table))
-    return [event[3] for event in sorted(events, key=lambda event: event[:3])]
+    for raw_table, table in valid_tables:
+        column = 1 if column_split is not None and raw_table.bbox[0] >= column_split else 0
+        events.append((column, raw_table.bbox[1], raw_table.bbox[0], table))
+    return _paragraphs_and_lists(
+        [event[3] for event in sorted(events, key=lambda event: event[:3])], context
+    )
+
+
+def _line_spans(line: _PdfLine) -> tuple[TextSpan, ...]:
+    if not line.words:
+        return (TextSpan(text=line.text, bold=line.bold),)
+    return tuple(
+        TextSpan(
+            text=(" " if index else "") + word.text,
+            bold="bold" in word.fontname.lower(),
+            italic="italic" in word.fontname.lower(),
+        )
+        for index, word in enumerate(line.words)
+    )
+
+
+_BULLET = re.compile(r"^(?:[•○●▪■\uf0b7\uf0a7]|o(?=\s)|\(cid:183\))\s*")
+_NUMBERED = re.compile(r"^\d+(?:\.\d+)*[.)]?\s+")
+
+
+def _paragraphs_and_lists(blocks: list[ContentBlock], context: _PdfContext) -> list[ContentBlock]:
+    merged: list[ContentBlock] = []
+    for block in blocks:
+        if isinstance(block, ParagraphBlock) and block.source and block.source.bounding_box:
+            text = "".join(s.text for s in block.spans)
+            previous = merged[-1] if merged else None
+            box = block.source.bounding_box
+            if (
+                isinstance(previous, ParagraphBlock)
+                and previous.source
+                and previous.source.bounding_box
+            ):
+                prior = previous.source.bounding_box
+                prior_text = "".join(s.text for s in previous.spans)
+                gap = box.y - (prior.y + prior.height)
+                if (
+                    not block.attributes.get("story")
+                    and not previous.attributes.get("story")
+                    and not _BULLET.match(text)
+                    and not _NUMBERED.match(text)
+                    and not prior_text.rstrip().endswith((".", ":", ";", "!", "?"))
+                    and -1 <= gap <= 8
+                    and abs(box.x - prior.x) <= 24
+                    and box.x < prior.x + prior.width
+                ):
+                    location = previous.source.model_copy(
+                        update={
+                            "bounding_box": _bbox(
+                                min(box.x, prior.x),
+                                prior.y,
+                                max(box.x + box.width, prior.x + prior.width),
+                                box.y + box.height,
+                                box.canvas_width or 1.0,
+                                box.canvas_height or 1.0,
+                            )
+                        }
+                    )
+                    merged[-1] = previous.model_copy(
+                        update={
+                            "spans": (*previous.spans, TextSpan(text=" "), *block.spans),
+                            "source": location,
+                        }
+                    )
+                    continue
+        merged.append(block)
+
+    def marker(block: ContentBlock) -> tuple[re.Match[str], float] | None:
+        if not isinstance(block, ParagraphBlock) or block.attributes.get("story"):
+            return None
+        found = _BULLET.match("".join(s.text for s in block.spans))
+        if found and block.source and block.source.bounding_box:
+            return found, block.source.bounding_box.x
+        return None
+
+    def consume(index: int, indent: float) -> tuple[ListBlock, int]:
+        items: list[ListItem] = []
+        origin = merged[index].source
+        while index < len(merged) and (found := marker(merged[index])):
+            match, x = found
+            if x < indent - 8:
+                break
+            if x > indent + 8 and items:
+                nested, index = consume(index, x)
+                items[-1] = ListItem(blocks=(*items[-1].blocks, nested))
+                continue
+            child = cast(ParagraphBlock, merged[index])
+            remaining = match.end()
+            spans: list[TextSpan] = []
+            for span in child.spans:
+                cut = min(remaining, len(span.text))
+                remaining -= cut
+                if span.text[cut:]:
+                    spans.append(span.model_copy(update={"text": span.text[cut:]}))
+            items.append(ListItem(blocks=(child.model_copy(update={"spans": tuple(spans)}),)))
+            index += 1
+        return ListBlock(
+            block_id=context.next_id("list"),
+            kind=ListKind.UNORDERED,
+            items=tuple(items),
+            source=origin,
+        ), index
+
+    result: list[ContentBlock] = []
+    index = 0
+    while index < len(merged):
+        found = marker(merged[index])
+        if found:
+            group, index = consume(index, found[1])
+            result.append(group)
+        else:
+            result.append(merged[index])
+            index += 1
+    return result
+
+
+def _mark_repeated_tables(
+    pages: tuple[ContentBlock, ...], fraction: float
+) -> tuple[ContentBlock, ...]:
+    groups: dict[tuple[object, ...], list[tuple[int, str]]] = {}
+    for page_index, page in enumerate(pages):
+        if not isinstance(page, ContainerBlock):
+            continue
+        for block in page.blocks:
+            box = block.source.bounding_box if block.source else None
+            if (
+                isinstance(block, TableBlock)
+                and box
+                and box.y + box.height < (box.canvas_height or 0) * 0.2
+            ):
+                fingerprint = tuple(
+                    " ".join(c.displayed_text.split()).casefold()
+                    for r in block.rows
+                    for c in r.cells
+                )
+                key = (
+                    block.row_count,
+                    block.column_count,
+                    round(box.y / (box.canvas_height or 1), 1),
+                    fingerprint,
+                )
+                groups.setdefault(key, []).append((page_index, block.block_id))
+    hidden: set[str] = set()
+    for occurrences in groups.values():
+        if len({i for i, _ in occurrences}) >= max(2, math.ceil(len(pages) * fraction)):
+            hidden.update(block_id for _, block_id in occurrences[1:])
+    return tuple(
+        page.model_copy(
+            update={
+                "blocks": tuple(
+                    block.model_copy(
+                        update={
+                            "attributes": {
+                                **block.attributes,
+                                "story": "header",
+                                "repeated_margin": True,
+                            }
+                        }
+                    )
+                    if block.block_id in hidden
+                    else block
+                    for block in page.blocks
+                )
+            }
+        )
+        if isinstance(page, ContainerBlock)
+        else page
+        for page in pages
+    )
 
 
 def _page_images(

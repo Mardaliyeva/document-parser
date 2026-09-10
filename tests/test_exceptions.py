@@ -17,6 +17,7 @@ from document_parser import (
     SourceNotFoundError,
     SourceReadError,
     SourceTooLargeError,
+    UiDependencyNotAvailableError,
     UnsafeDocumentError,
     UnsupportedFormatError,
 )
@@ -37,6 +38,7 @@ from document_parser import (
         (OcrModelNotAvailableError, ErrorCode.OCR_MODEL_NOT_AVAILABLE),
         (OcrConfigurationError, ErrorCode.OCR_CONFIGURATION_ERROR),
         (OcrExecutionError, ErrorCode.OCR_EXECUTION_ERROR),
+        (UiDependencyNotAvailableError, ErrorCode.UI_DEPENDENCY_NOT_AVAILABLE),
     ],
 )
 def test_exception_code_contract(

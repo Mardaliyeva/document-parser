@@ -7,7 +7,7 @@ import document_parser
 
 
 def test_package_import_exposes_version_only() -> None:
-    assert document_parser.__version__ == "0.6.0a1"
+    assert document_parser.__version__ == "0.8.0a1"
     assert document_parser.SCHEMA_VERSION == "0.2"
     assert {
         "Document",
@@ -25,6 +25,7 @@ def test_package_import_exposes_version_only() -> None:
 def test_import_does_not_load_document_engines() -> None:
     forbidden_names = {
         "docling",
+        "gradio",
         "openpyxl",
         "paddleocr",
         "pypdfium2",

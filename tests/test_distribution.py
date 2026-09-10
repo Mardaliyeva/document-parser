@@ -37,6 +37,12 @@ def test_distribution_metadata_matches_package() -> None:
     assert any(requirement.startswith("paddleocr") for requirement in ocr_requirements)
     assert any(requirement.startswith("platformdirs") for requirement in ocr_requirements)
     assert any(requirement.startswith("pypdfium2") for requirement in ocr_requirements)
+    ui_requirements = {
+        requirement
+        for requirement in requirements
+        if "extra ==" in requirement and "ui" in requirement
+    }
+    assert any(requirement.startswith("gradio") for requirement in ui_requirements)
     scripts = entry_points(group="console_scripts")
     assert any(
         item.name == "document-parser" and item.value == "document_parser.cli:main"

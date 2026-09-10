@@ -47,13 +47,17 @@ document-parser = "document_parser.cli:main"
 
 [project.optional-dependencies]
 ocr = [
-  "paddleocr>=3.7,<4",
+  "paddleocr[doc-parser]>=3.7,<4",
   "platformdirs>=4,<5",
   "pypdfium2>=5.12,<6",
+]
+ui = [
+  "gradio>=6.26,<7",
 ]
 dev = [
   "build>=1.2,<2",
   "cyclonedx-bom>=7,<8",
+  "gradio>=6.26,<7",
   "mypy>=1.13,<2",
   "pip-licenses>=5,<6",
   "pytest>=8,<10",
@@ -81,6 +85,7 @@ packages = ["src/document_parser"]
 core-metadata-version = "2.4"
 include = [
   "/src",
+  "/scripts",
   "/tests",
   "/docs",
   "/CHANGELOG.md",
@@ -138,5 +143,6 @@ module = [
   "pypdf.*",
   "pypdfium2.*",
   "reportlab.*",
+  "gradio.*",
 ]
 ignore_missing_imports = true

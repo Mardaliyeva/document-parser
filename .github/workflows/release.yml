@@ -43,6 +43,9 @@ jobs:
           .release-runtime/bin/python -m pip install dist/*.whl
           .release-runtime/bin/document-parser version
           cyclonedx-py environment .release-runtime/bin/python --pyproject pyproject.toml --mc-type library --output-reproducible --output-file=sbom.json
+          python -m venv .release-ui
+          .release-ui/bin/python -m pip install ".[ui]"
+          cyclonedx-py environment .release-ui/bin/python --pyproject pyproject.toml --mc-type library --output-reproducible --output-file=ui-sbom.json
           sha256sum dist/* > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
@@ -50,6 +53,7 @@ jobs:
           path: |
             dist/
             sbom.json
+            ui-sbom.json
             SHA256SUMS
           if-no-files-found: error
 
@@ -70,6 +74,7 @@ jobs:
           files: |
             dist/*
             sbom.json
+            ui-sbom.json
             SHA256SUMS
 
   pypi:

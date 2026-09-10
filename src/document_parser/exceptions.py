@@ -20,6 +20,7 @@ class ErrorCode(StrEnum):
     OCR_MODEL_NOT_AVAILABLE = "ocr_model_not_available"
     OCR_CONFIGURATION_ERROR = "ocr_configuration_error"
     OCR_EXECUTION_ERROR = "ocr_execution_error"
+    UI_DEPENDENCY_NOT_AVAILABLE = "ui_dependency_not_available"
 
 
 class DocumentParserError(Exception):
@@ -108,3 +109,9 @@ class OcrExecutionError(DocumentParserError):
     """Raised by an OCR engine when one page cannot be recognized."""
 
     code = ErrorCode.OCR_EXECUTION_ERROR
+
+
+class UiDependencyNotAvailableError(DocumentParserError):
+    """Raised when the explicitly requested local UI dependency is unavailable."""
+
+    code = ErrorCode.UI_DEPENDENCY_NOT_AVAILABLE
