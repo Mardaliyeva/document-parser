@@ -140,7 +140,7 @@ jobs:
           python -m venv .wheel-venv
           .wheel-venv/bin/python -m pip install dist/*.whl
           .wheel-venv/bin/python -c "import document_parser; print(document_parser.__version__)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: python-distributions
           path: dist/
@@ -199,7 +199,7 @@ jobs:
         run: |
           python -m piplicenses --python .ui-audit-venv/bin/python --format=json --output-file=ui-licenses.json
           cyclonedx-py environment .ui-audit-venv/bin/python --pyproject pyproject.toml --mc-type library --output-reproducible --output-file=ui-sbom.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dependency-audit
           path: |

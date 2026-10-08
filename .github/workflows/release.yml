@@ -47,7 +47,7 @@ jobs:
           .release-ui/bin/python -m pip install ".[ui]"
           cyclonedx-py environment .release-ui/bin/python --pyproject pyproject.toml --mc-type library --output-reproducible --output-file=ui-sbom.json
           sha256sum dist/* > SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-${{ github.ref_name }}
           path: |
