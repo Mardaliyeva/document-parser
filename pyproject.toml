@@ -56,7 +56,7 @@ ui = [
 ]
 dev = [
   "build>=1.2,<2",
-  "cyclonedx-bom>=7,<8",
+  "cyclonedx-bom>=7,<9",
   "gradio>=6.26,<7",
   "mypy>=1.13,<2",
   "pip-licenses>=5,<6",
